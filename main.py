@@ -133,6 +133,10 @@ class Game:
             self.enemies_killed_this_level = 0
             increase_level(self.level)
 
+            # На уровне 6+ каждое повышение уровня приводит босса
+            if self.level.level_number >= LEVEL_BOSS_THRESHOLD:
+                self.spawn_boss()
+
     def reset(self) -> None:
         """Сброс игры."""
         self.score = 0

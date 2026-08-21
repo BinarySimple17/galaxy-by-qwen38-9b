@@ -77,9 +77,9 @@ class Enemy(pygame.sprite.Sprite):
             wave_offset = math.sin(pygame.time.get_ticks() / 300.0) * 1.5
             self.rect.x += wave_offset
 
-        # Удаление при улете за экран
+        # Удаление при полном выходе за экран (низ/бока); вход сверху разрешён
         if (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.bottom < 0 or self.rect.top > HEIGHT):
+                self.rect.top > HEIGHT):
             self.kill()
 
 

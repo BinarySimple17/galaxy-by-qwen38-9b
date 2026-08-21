@@ -26,12 +26,9 @@ class Level:
 
 
 def increase_level(level: Level) -> None:
-    """Увеличить номер уровня и обновить параметры."""
+    """Увеличить номер уровня. Остальные параметры — свойства,
+    пересчитываются автоматически от level_number."""
     level.level_number += 1
-    # spawn_interval уже вычисляется через свойство, но пересчитаем явно для ясности
-    level.spawn_interval = max(40, 80 - level.level_number * 5)
-    level.enemies_to_kill_for_next_level = (level.level_number + 1) * 2
-    level.victory_score_threshold = level.level_number * 10
 
 
 def get_available_enemy_types(level: Level) -> list[str]:
@@ -44,9 +41,12 @@ def get_available_enemy_types(level: Level) -> list[str]:
         # Уровень 6+ — появляются боссы
         types = (["simple"] * (level.level_number // 2) +
                   ["fast"] * ((level.level_number + 1) // 3))
+        # Слайс взвешенного пула; boss добавляется ПОСЛЕ него,
+        # чтобы гарантированно попасть в список на уровне 6+
+        types = types[:min(level.level_number % 4 + 1, len(types))]
         if level.level_number >= 6:
             types.append("boss")
-        return types[:min(level.level_number % 4 + 1, len(types))]
+        return types
 
 
 def get_boss_health() -> int:
