@@ -36,6 +36,7 @@ class Player(pygame.sprite.Sprite):
         now = pygame.time.get_ticks()
         if self.cooldown is None or now - self.last_shot_time >= PLAYER_COOLDOWN_MS:
             self.cooldown = now + PLAYER_COOLDOWN_MS
+            self.last_shot_time = now
             return True
         return False
 

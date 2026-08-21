@@ -2,6 +2,8 @@
 
 import pygame
 
+from .config import WIDTH, HEIGHT
+
 
 class Entity:
     """Базовая сущность для всех игровых объектов."""
@@ -15,7 +17,7 @@ class Entity:
     @property
     def is_offscreen(self) -> bool:
         """Проверка, находится ли сущность за пределами экрана."""
-        if not hasattr(self, "rect"):
+        if getattr(self, "rect", None) is None:
             return False
         return (self.rect.right < 0 or self.rect.left > WIDTH or
                 self.rect.bottom < 0 or self.rect.top > HEIGHT)

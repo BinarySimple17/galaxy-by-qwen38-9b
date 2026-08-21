@@ -2,7 +2,6 @@
 
 import pygame
 import random
-from typing import Optional, List
 
 # --- Импорты внутренних модулей ---
 from game.config import (
@@ -35,15 +34,15 @@ class Game:
         self.small_font = pygame.font.Font(None, 24)
         self.screen: pygame.Surface = SCREEN
 
-        # Группы спрайтов
-        self.all_sprites: List[pygame.sprite.Sprite] = []
-        self.bullets: List[Bullet] = []
-        self.enemies: List["Enemy"] = []
-        self.particles: List[Particle] = []
+        # Группы спрайтов (pygame.sprite.Group — kill() удаляет из группы)
+        self.all_sprites = pygame.sprite.Group()
+        self.bullets = pygame.sprite.Group()
+        self.enemies = pygame.sprite.Group()
+        self.particles = pygame.sprite.Group()
 
         # Игрок
         self.player = Player()
-        self.all_sprites.append(self.player)
+        self.all_sprites.add(self.player)
 
         # Состояние игры
         self.score: int = 0
@@ -70,21 +69,21 @@ class Game:
         y = random.randint(-50, -40)  # враги спавнятся сверху (y от -50 до -40 пикселей выше верха экрана)
 
         enemy = spawn_enemy(x=x, y=y, enemy_type=enemy_type)
-        self.enemies.append(enemy)
-        self.all_sprites.append(enemy)
+        self.enemies.add(enemy)
+        self.all_sprites.add(enemy)
 
     def spawn_boss(self) -> None:
         """Спавнить босса в центре сверху."""
         boss = spawn_boss()
-        self.enemies.append(boss)
-        self.all_sprites.append(boss)
+        self.enemies.add(boss)
+        self.all_sprites.add(boss)
 
     def spawn_particles(self, x: float, y: float) -> None:
         """Создать взрыв частиц."""
         for _ in range(random.randint(12, 18)):
             particle = Particle(x, y)
-            self.particles.append(particle)
-            self.all_sprites.append(particle)
+            self.particles.add(particle)
+            self.all_sprites.add(particle)
 
     def handle_collision_enemy_with_bullet(self, enemy: "Enemy", bullet: Bullet) -> None:
         """Обработать коллизию врага с пулей."""
@@ -95,10 +94,22 @@ class Game:
         bounce_direction = bullet.bounce()
         bullet.velocity = bounce_direction
 
-        # Если пуль попала в игрока — наносим урон
+        # Если пуля попала в игрока — наносим урон
         if pygame.sprite.collide_rect(bullet, self.player):
             self.lives -= 1
             bullet.kill()
+            return
+
+        # Враг получает урон
+        enemy.hp -= 1
+        bullet.kill()
+
+        # Враг уничтожен — взрыв, очки, прогресс уровня
+        if enemy.hp <= 0:
+            self.spawn_particles(enemy.rect.centerx, enemy.rect.centery)
+            self.score += enemy.score_value
+            self.enemies_killed_this_level += 10 if enemy.enemy_type == "boss" else 1
+            enemy.kill()
             return
 
         # Если пуля не попала никуда — удаляем её
@@ -133,6 +144,7 @@ class Game:
         self.bullets.clear()
         self.enemies.clear()
         self.particles.clear()
+        self.all_sprites.add(self.player)
         self.player.rect.center = (WIDTH // 2, HEIGHT - 60)
 
     def draw(self) -> None:
@@ -194,8 +206,8 @@ class Game:
                     x=self.player.rect.centerx + 20,
                     y=self.player.rect.top - 15
                 )
-                self.bullets.append(bullet)
-                self.all_sprites.append(bullet)
+                self.bullets.add(bullet)
+                self.all_sprites.add(bullet)
 
         # Удаление пуль за экраном
         for bullet in list(self.bullets):
@@ -206,8 +218,7 @@ class Game:
         self.handle_collisions()
 
         # Обновление всех живых сущностей
-        for entity in list(self.all_sprites):
-            entity.update()
+        self.all_sprites.update()
 
         # Спавн врагов по таймеру
         if random.random() < 1.0 / max(MIN_SPAWN_INTERVAL, self.level.spawn_interval):
