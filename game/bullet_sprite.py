@@ -1,6 +1,7 @@
 """game/bullet_sprite.py — Пуля."""
 
 import pygame
+import random
 import math
 from typing import Optional
 
@@ -33,14 +34,19 @@ class Bullet(pygame.sprite.Sprite):
             pygame.draw.circle(surface, (253, 216, 53), (size // 2, 2), 3)
             self.image = surface
 
+    @property
+    def is_offscreen(self) -> bool:
+        """Проверка, улетела ли пуля за экран."""
+        return (self.rect.right < 0 or self.rect.left > WIDTH or
+                self.rect.top < 0 or self.rect.bottom < -50)
+
     def update(self) -> None:
         """Обновить позицию пули."""
         self.rect.center = (self.rect.centerx + self.velocity.x,
                            self.rect.centery + self.velocity.y)
 
         # Удаляем пулю, если она улетела за экран
-        if (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.top < 0 or self.rect.bottom < -50):
+        if self.is_offscreen:
             self.kill()
 
     def bounce(self) -> Optional[pygame.math.Vector2]:

@@ -3,7 +3,7 @@
 import pygame
 from typing import Optional
 
-from .config import WIDTH, HEIGHT, COLORS, PLAYER_SPEED
+from .config import WIDTH, HEIGHT, COLORS, PLAYER_SPEED, PLAYER_COOLDOWN_MS
 from .entities import Entity
 
 

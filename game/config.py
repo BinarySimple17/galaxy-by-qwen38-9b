@@ -19,7 +19,7 @@ COLORS = {
 
 # --- Параметры игрока ---
 PLAYER_SPEED = 5.0
-PLAYER_COOLDOWN_MS = 200  # мс между выстрелами
+PLAYER_COOLDOWN_MS = 200  # мс между выстрелами (~200 мс)
 
 # --- Параметры врагов ---
 ENEMY_SIMPLE = "simple"
@@ -34,9 +34,9 @@ ENEMY_BOSS_SPEED = 1.5
 
 # --- Параметры уровня ---
 STARTING_SPAWN_INTERVAL = 80  # кадров между спавнами
-MIN_SPAWN_INTERVAL = 40       # минимальный интервал
-LEVEL_3_THRESHOLD = 3         # уровень, когда появляются быстрые враги
-LEVEL_BOSS_THRESHOLD = 6      # уровень, когда появляются боссы
+MIN_SPAWN_INTERVAL = 40  # минимальный интервал
+LEVEL_3_THRESHOLD = 3  # уровень, когда появляются быстрые враги
+LEVEL_BOSS_THRESHOLD = 6  # уровень, когда появляются боссы
 
 # --- Параметры победы/поражения ---
-LIVES_PER_LEVEL_BASE = 10     # базовый порог очков для победы на уровне
+LIVES_PER_LEVEL_BASE = 10  # базовый порог очков для победы на уровне

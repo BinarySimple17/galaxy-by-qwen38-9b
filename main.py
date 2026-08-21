@@ -199,7 +199,7 @@ class Game:
 
         # Удаление пуль за экраном
         for bullet in list(self.bullets):
-            if bullet.is_offscreen():
+            if bullet.is_offscreen:
                 bullet.kill()
 
         # Коллизии
