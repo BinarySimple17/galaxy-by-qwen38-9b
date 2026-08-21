@@ -1,572 +1,495 @@
-# Сессия 6: Game Over / Victory + Полный UI 🏆🎉
+# Сессия 6: Победа, рестарт и финальный UI 🏆🎉 (v2 — доработка)
 
-## 📅 Дата начала: [вставить дату]
+> **ВАЖНО:** Это ПЕРЕРАБОТАННАЯ сессия. Из старой версии НЕ нужно переписывать
+> `main.py` целиком — игра уже модульная и рабочая.
+>
+> Текущие пробелы, которые закрывает сессия:
+> 1. Флаг `victory` **никогда не выставляется** — победы в игре нет.
+> 2. `reset()` не обнуляет `enemies_killed_this_level` и `enemy_spawn_timer`
+>    (после рестарта прогресс уровня показывался неверно).
+> 3. Экран есть только у поражения; экран победы отсутствует.
+
+---
+
+## ⚠️ Правила для агента (обязательные)
+
+1. Меняй только файлы, указанные в шагах: `game/config.py`, `main.py`,
+   `tests/run_all.py` и новый файл `tests/test_final.py`.
+2. Каждый шаг: «НАЙДИ» → точный якорь из текущего кода, «ЗАМЕНИ НА» → блок
+   целиком, затем «ПРОВЕРКА». Упало — `git checkout -- <файл>` и шаг заново.
+3. Отступы Python — 4 пробела на уровень. Копируй блоки без правок.
+4. Файлы `game/game_state.py`, `game/enemy_sprite.py` и остальные модули
+   `game/` **не трогать**.
+5. Все команды — из корня проекта в PowerShell через `.venv\Scripts\python.exe`.
+
+---
+
+## 📌 Текущее состояние
+
+| Поведение | Где | Статус |
+|-----------|-----|--------|
+| Game Over при `lives <= 0` + экран | сессия 4 | ✅ |
+| HP-бар босса | сессия 5 | ✅ |
+| Условие победы (`victory = True`) | нигде | ❌ **нет** |
+| Экран VICTORY | `draw()` | ❌ **нет** |
+| Полный сброс счётчиков при рестарте | `reset()` | ❌ частично |
+| Рестарт по SPACE после конца игры | `run()` | ✅ уже вызывает `reset()` |
 
 ---
 
 ## 🎯 Цель сессии
-Добавить экраны победы/поражения, перезапуск игры по пробелу, а также полный пользовательский интерфейс (очки, жизни, уровень, прогресс-бар).
+
+1. Константа `VICTORY_LEVEL = 10`: победа наступает, когда номер уровня
+   становится больше `VICTORY_LEVEL`.
+2. Экран VICTORY по центру (зелёный), рядом GAME OVER (красный).
+3. `reset()` сбрасывает ВСЁ: очки, жизни, уровень, флаги, счётчики, группы.
 
 ---
 
-## ✅ Результат после сессии
+## ✅ Определение готовности (Definition of Done)
 
-Полностью рабочая игра "Galaxy Shooter" с:
-- Полноценным игровым циклом
-- Управлением корабля (WASD / стрелки)
-- Стрельбой пробелом
-- Спавном врагов всех трёх типов (простые, быстрые, боссы)
-- Прогрессией сложности (уровни, скорость спавна, боссы)
-- Жизнями игрока и системой отскока пуль
-- Частицами при уничтожении врагов
-- Экранами Game Over / Victory с перезапуском
-- Полным UI: очки, жизни, уровень, прогресс уровня
+- [ ] `tests/test_final.py` → `ИТОГО: 9 PASS / 0 FAIL`
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (7)`
+- [ ] Изменены только `game/config.py`, `main.py`, `tests/run_all.py`,
+      добавлен `tests/test_final.py`
 
 ---
 
-## 🛠 Задачи
+## 🛠 Шаги
 
-### 1. Обновить `main.py` — полный класс `Game` со всеми функциями (~20 мин)
+### Шаг 6.1. Константа победы
 
-Ниже представлен **полный, готовый к запуску код** файла `main.py`.
+ФАЙЛ: `game/config.py`.
+
+НАЙДИ (конец файла):
 
 ```python
-"""main.py — Точка входа в игру."""
-import pygame
-import random
-import math
-from typing import List, Optional
-
-
-# Инициализация pygame
-pygame.init()
-WIDTH, HEIGHT = 800, 600
-SCREEN: pygame.Surface = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Galaxy Shooter")
-CLOCK = pygame.time.Clock()
-FPS = 60
-
-# Цвета
-COLORS = {
-    "BLACK": (10, 10, 25),
-    "WHITE": (255, 255, 255),
-    "RED": (239, 84, 80),
-    "BLUE": (78, 191, 255),
-    "YELLOW": (253, 216, 53),
-    "GREEN": (61, 183, 134),
-}
-
-
-# ==================== Уровни и прогрессия ====================
-
-class Level:
-    """Уровень игры."""
-
-    def __init__(self, level_number: int = 1) -> None:
-        self.level_number = level_number
-        # Интервал спавна врагов (кадров между появлениями)
-        self.spawn_interval = max(40, 80 - level_number * 5)
-        # Количество врагов для повышения уровня
-        self.enemies_to_kill_for_next_level: int = (level_number + 1) * 2
-        # Порог очков для победы на уровне
-        self.victory_score_threshold: int = level_number * 10
-
-    def increase(self) -> None:
-        """Увеличить уровень."""
-        self.level_number += 1
-        self.spawn_interval = max(40, 80 - self.level_number * 5)
-        self.enemies_to_kill_for_next_level = (self.level_number + 1) * 2
-        self.victory_score_threshold = self.level_number * 10
-
-
-def get_available_enemy_types(level: int) -> list[str]:
-    """Возвращает список доступных типов врагов для данного уровня."""
-    if level == 1 or level == 2:
-        return ["simple"]
-    elif level < 3:
-        return ["simple", "fast"]
-    else:
-        # Уровень 6+ → появляются боссы
-        types = ["simple"] * (level // 2) + \
-                 ["fast"] * ((level + 1) // 3) + \
-                 ["boss"] if level >= 6 else []
-        return types[:min(level % 4 + 1, len(types))]
-
-
-def get_boss_health() -> int:
-    """Здоровье босса."""
-    return 10
-
-
-def get_boss_size() -> int:
-    """Размер спрайта босса (в пикселях)."""
-    return 76
-
-
-# ==================== Частицы ====================
-
-class Particle(pygame.sprite.Sprite):
-    """Частица взрыва."""
-
-    def __init__(self, x: float, y: float) -> None:
-        super().__init__()
-        angle = random.uniform(0, math.pi * 2)
-        speed = random.uniform(1.5, 4.0)
-        self.velocity = pygame.math.Vector2(math.cos(angle), math.sin(angle)) * speed
-
-        radius = random.randint(3, 8)
-        color = random.choice((COLORS["RED"], COLORS["YELLOW"], COLORS["GREEN"]))
-
-        surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(surface, color + (150,), (radius, radius), radius)
-
-        self.image = surface
-        self.rect = self.image.get_rect(center=(x, y))
-        self.lifetime: int = random.randint(30, 60)
-
-    def update(self) -> None:
-        """Обновление позиции и уменьшение времени жизни."""
-        self.velocity *= 0.97
-        self.rect.center = (self.rect.centerx + self.velocity.x,
-                           self.rect.centery + self.velocity.y)
-        self.lifetime -= 1
-
-        if self.lifetime <= 0:
-            self.kill()
-
-
-def create_explosion(x: float, y: float) -> list["Particle"]:
-    """Создать всплеск частиц в точке (x, y)."""
-    particles = []
-    for _ in range(random.randint(12, 18)):
-        p = Particle(x, y)
-        particles.append(p)
-    return particles
-
-
-# ==================== Базовая сущность ====================
-
-class Entity(pygame.sprite.Sprite):
-    """Базовый класс сущности."""
-
-    def __init__(self, x: float, y: float, radius: float = 20) -> None:
-        super().__init__()
-        self.radius = radius
-        self.image = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, (255, 255, 255), (radius, radius), radius)
-        self.rect = self.image.get_rect(center=(x, y))
-
-    def is_offscreen(self) -> bool:
-        return (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.bottom < 0 or self.rect.top > HEIGHT)
-
-
-# ==================== Пуля ====================
-
-class Bullet(pygame.sprite.Sprite):
-    """Пуля — жёлтая полоса, летящая вверх."""
-
-    def __init__(self, x: float, y: float, direction: tuple = (-1.0, -8.0)) -> None:
-        super().__init__()
-        try:
-            self.image = pygame.image.load("game/sprites/bullet.png").convert_alpha()
-        except FileNotFoundError:
-            size, height = 6, 14
-            surface = pygame.Surface((size, height), pygame.SRCALPHA)
-            pygame.draw.rect(surface, (253, 216, 53, 200), (0, 0, size, height))
-            pygame.draw.circle(surface, (253, 216, 53), (size // 2, 2), 3)
-            self.image = surface
-
-        self.rect = self.image.get_rect(center=(x + 3, y - 7))
-        speed = 8.0
-        direction_vec = pygame.math.Vector2(direction).normalize() * speed
-        self.velocity = direction_vec
-
-    def update(self) -> None:
-        """Обновление позиции пули."""
-        self.rect.center = (self.rect.centerx + self.velocity.x,
-                           self.rect.centery + self.velocity.y)
-
-        if (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.top < 0 or self.rect.bottom < -50):
-            self.kill()
-
-    def bounce(self) -> Optional[pygame.math.Vector2]:
-        """Отскочить: возвращает вектор новой скорости."""
-        new_speed = random.uniform(-6.0, -9.0)
-        angle = random.uniform(1.5, 4.0)
-        return pygame.math.Vector2(math.cos(angle), math.sin(angle)) * new_speed
-
-
-# ==================== Игрок ====================
-
-class Player(pygame.sprite.Sprite):
-    """Корабль игрока."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        try:
-            self.image = pygame.image.load("game/sprites/spaceship.png").convert_alpha()
-        except FileNotFoundError:
-            size = 50
-            surface = pygame.Surface((size, size), pygame.SRCALPHA)
-            points = [(25, 0), (50, size - 10), (0, size - 10)]
-            pygame.draw.polygon(surface, COLORS["GREEN"], points, width=3)
-            self.image = surface
-
-        self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 60))
-        # Cooldown для стрельбы
-        self.cooldown: Optional[float] = None
-        self.last_shot_time: float = 0.0
-
-    def shoot(self) -> bool:
-        """Выстрелить, если прошло достаточно времени."""
-        now = pygame.time.get_ticks()
-        if self.cooldown is None or now - self.last_shot_time >= 200:
-            self.cooldown = now + 200
-            return True
-        return False
-
-    def update(self) -> None:
-        """Обновление позиции игрока по клавиатуре."""
-        speed = 5
-        if pygame.key.get_pressed():
-            keys = pygame.key.get_pressed()
-            dx = dy = 0.0
-
-            if keys[pygame.K_UP] or keys[pygame.K_w]:
-                dy -= speed
-            if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-                dy += speed
-            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                dx -= speed
-            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-                dx += speed
-
-            self.rect.x += dx
-            self.rect.y += dy
-
-        # Ограничение границами экрана
-        self.rect.right = min(self.rect.right, WIDTH)
-        self.rect.left = max(self.rect.left, 0)
-        self.rect.bottom = min(self.rect.bottom, HEIGHT)
-        self.rect.top = max(self.rect.top, 50)
-
-
-# ==================== Враг ====================
-
-class Enemy(pygame.sprite.Sprite):
-    """Враг — круг, падающий сверху."""
-
-    TYPES = ["simple", "fast", "boss"]
-
-    def __init__(self, enemy_type: str = "simple") -> None:
-        super().__init__()
-        self.enemy_type = enemy_type
-        self.max_hp = 1 if enemy_type != "boss" else 10
-        self.hp = self.max_hp
-        self.score_value = 10 if enemy_type == "simple" else (20 if enemy_type == "fast" else 100)
-
-        if enemy_type == "simple":
-            size, color, speed = 30, (239, 84, 80), 2.5
-        elif enemy_type == "fast":
-            size, color, speed = 20, (78, 191, 255), 4.5
-        else:
-            size, color, speed = 76, (239, 84, 80), 1.5
-
-        self.radius = size // 2
-        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
-
-        # Тело врага — круг с обводкой
-        pygame.draw.circle(self.image, color + (180,), (self.radius, self.radius), self.radius - 3)
-        # Обводка круга для стиля
-        pygame.draw.circle(self.image, color[0:3] + (255,), (self.radius, self.radius), self.radius - 3, width=2)
-
-        # Глаза — только у простых и быстрых врагов
-        if enemy_type != "boss":
-            pygame.draw.circle(self.image, (255, 255, 255), (14, 12), 4)
-            pygame.draw.circle(self.image, (0, 0, 0), (14, 12), 2)
-            pygame.draw.circle(self.image, (255, 255, 255), (size - 14, 12), 4)
-            pygame.draw.circle(self.image, (0, 0, 0), (size - 14, 12), 2)
-
-        # Глаз босса — один большой
-        if enemy_type == "boss":
-            eye_radius = max(5, size // 6)
-            pygame.draw.circle(self.image, (255, 255, 200), (size // 2 - eye_radius + 3, self.radius - 8), eye_radius)
-            pygame.draw.circle(self.image, (0, 0, 0), (size // 2 - eye_radius + 3, self.radius - 8), max(1, eye_radius // 3))
-
-        self.rect = self.image.get_rect()
-        self.velocity = pygame.math.Vector2(0.0, speed)
-
-    def update(self) -> None:
-        """Обновление позиции врага."""
-        self.rect.y += self.velocity.y
-
-        if self.enemy_type == "fast":
-            wave_offset = math.sin(pygame.time.get_ticks() / 300.0) * 1.5
-            self.rect.x += wave_offset
-
-        # Проверка: улетел за экран → удалить
-        if (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.bottom < 0 or self.rect.top > HEIGHT):
-            self.kill()
-
-
-# ==================== Основной класс игры ====================
-
-class Game:
-    """Основной игровой цикл."""
-
-    def __init__(self) -> None:
-        self.font = pygame.font.Font(None, 36)
-        self.small_font = pygame.font.Font(None, 24)
-
-        # Группы спрайтов
-        self.all_sprites: List[pygame.sprite.Sprite] = []
-        self.bullets: List[Bullet] = []
-        self.enemies: List["Enemy"] = []
-        self.particles: List[Particle] = []
-
-        self.player = Player()
-        self.score = 0
-        self.level = Level(level_number=1)
-        self.lives = 3
-        self.game_over = False
-        self.victory = False
-
-        # Таймер спавна врагов
-        self.enemy_spawn_timer: int = 0
-        self.enemy_spawn_interval: int = 80
-
-        # Трекер для повышения уровня
-        self.enemies_killed_this_level: int = 0
-
-    def spawn_enemy(self) -> None:
-        """Спавн нового врага сверху."""
-        available_types = get_available_enemy_types(self.level.level_number)
-
-        if not available_types:
-            available_types = ["simple"]
-
-        enemy_type = random.choice(available_types[:min(self.level.level_number % 3 + 1, len(available_types))])
-
-        x = random.randint(20, WIDTH - 20)
-        y = random.randint(-40, -50)
-
-        enemy = Enemy(enemy_type=enemy_type)
-        enemy.rect.centerx = x
-        enemy.rect.top = y
-
-        self.enemies.append(enemy)
-        self.all_sprites.append(enemy)
-
-    def spawn_boss(self) -> None:
-        """Спавн босса в центре сверху."""
-        boss = Enemy(enemy_type="boss")
-        boss_x = WIDTH // 2 - get_boss_size() // 2
-        boss_y = random.randint(-100, -60)
-
-        boss.rect.centerx = boss_x + get_boss_size() // 2
-        boss.rect.top = boss_y
-
-        self.enemies.append(boss)
-        self.all_sprites.append(boss)
-
-    def spawn_particles(self, x: float, y: float) -> None:
-        """Создать взрыв частиц в точке (x, y)."""
-        for _ in range(random.randint(12, 18)):
-            particle = Particle(x, y)
-            self.particles.append(particle)
-            self.all_sprites.append(particle)
-
-    def handle_collision_enemy_with_bullet(self, enemy: "Enemy", bullet: Bullet) -> None:
-        """Обработка коллизии врага с пулей игрока."""
-        if enemy.hp <= 0:
-            return
-
-        # Пуля отскакивает (враг стреляет обратно в игрока)
-        bounce_direction = bullet.bounce()
-        bullet.velocity = bounce_direction
-
-        # Если пуля попала в игрока — наносим урон
-        if pygame.sprite.collide_rect(bullet, self.player):
-            self.lives -= 1
-            bullet.kill()
-            return
-
-        # Если пуль не попала во врага или в игрока — удаляем
-        bullet.kill()
-
-    def handle_collisions(self) -> None:
-        """Обработка всех коллизий."""
-        for enemy in list(self.enemies):  # перебираем копию списка
-            if enemy.hp <= 0:
-                continue
-
-            hits = pygame.sprite.spritecollide(enemy, self.bullets, False)
-            for bullet in hits:
-                self.handle_collision_enemy_with_bullet(enemy, bullet)
+# --- Параметры победы/поражения ---
+LIVES_PER_LEVEL_BASE = 10  # базовый порог очков для победы на уровне
+```
 
+ЗАМЕНИ НА:
+
+```python
+# --- Параметры победы/поражения ---
+LIVES_PER_LEVEL_BASE = 10  # базовый порог очков для победы на уровне
+VICTORY_LEVEL = 10         # уровень, после которого наступает победа
+```
+
+ПРОВЕРКА:
+
+```powershell
+.venv\Scripts\python.exe -c "from game.config import VICTORY_LEVEL; print('VICTORY_LEVEL', VICTORY_LEVEL)"
+```
+
+Ожидается вывод: `VICTORY_LEVEL 10`
+
+---
+
+### Шаг 6.2. Импорт константы
+
+ФАЙЛ: `main.py`.
+
+НАЙДИ (блок импорта в начале файла):
+
+```python
+from game.config import (
+    WIDTH, HEIGHT, FPS, COLORS, PLAYER_SPEED,
+    PLAYER_COOLDOWN_MS, ENEMY_SIMPLE_SIZE, ENEMY_FAST_SIZE,
+    ENEMY_BOSS_SIZE, ENEMY_SIMPLE_SPEED, ENEMY_FAST_SPEED,
+    ENEMY_BOSS_SPEED, STARTING_SPAWN_INTERVAL, MIN_SPAWN_INTERVAL,
+    LEVEL_3_THRESHOLD, LEVEL_BOSS_THRESHOLD, LIVES_PER_LEVEL_BASE,
+)
+```
+
+ЗАМЕНИ НА:
+
+```python
+from game.config import (
+    WIDTH, HEIGHT, FPS, COLORS, PLAYER_SPEED,
+    PLAYER_COOLDOWN_MS, ENEMY_SIMPLE_SIZE, ENEMY_FAST_SIZE,
+    ENEMY_BOSS_SIZE, ENEMY_SIMPLE_SPEED, ENEMY_FAST_SPEED,
+    ENEMY_BOSS_SPEED, STARTING_SPAWN_INTERVAL, MIN_SPAWN_INTERVAL,
+    LEVEL_3_THRESHOLD, LEVEL_BOSS_THRESHOLD, LIVES_PER_LEVEL_BASE,
+    VICTORY_LEVEL,
+)
+```
+
+---
+
+### Шаг 6.3. Условие победы в handle_level_up
+
+ФАЙЛ: `main.py`.
+
+НАЙДИ (метод целиком):
+
+```python
     def handle_level_up(self) -> None:
-        """Проверка на повышение уровня."""
+        """Проверить повышение уровня."""
         if (self.level.victory_score_threshold > 0 and
                 self.score >= self.level.victory_score_threshold):
             # Уровень повышен — сбрасываем счётчик уничтоженных врагов
             self.enemies_killed_this_level = 0
-            self.level.increase()
+            increase_level(self.level)
 
-    def update(self) -> None:
-        """Обновление состояния игры."""
-        if not (self.game_over or self.victory):
-            # Обновление игрока
-            self.player.update()
+            # На уровне 6+ каждое повышение уровня приводит босса
+            if self.level.level_number >= LEVEL_BOSS_THRESHOLD:
+                self.spawn_boss()
+```
 
-            # Стрельба
-            self.shoot()
+ЗАМЕНИ НА:
 
-            # Удаляем пули, улетевшие за экран
-            for bullet in list(self.bullets):
-                if bullet.is_offscreen():
-                    bullet.kill()
+```python
+    def handle_level_up(self) -> None:
+        """Проверить повышение уровня и условие победы."""
+        if (self.level.victory_score_threshold > 0 and
+                self.score >= self.level.victory_score_threshold):
+            # Уровень повышен — сбрасываем счётчик уничтоженных врагов
+            self.enemies_killed_this_level = 0
+            increase_level(self.level)
 
-            # Проверка попаданий пуль во врагов
-            self.handle_collisions()
+            # Победа: пройден уровень VICTORY_LEVEL
+            if self.level.level_number > VICTORY_LEVEL:
+                self.victory = True
+                return
 
-            # Обновление всех живых сущностей
-            for entity in list(self.all_sprites):
-                entity.update()
+            # На уровне 6+ каждое повышение уровня приводит босса
+            if self.level.level_number >= LEVEL_BOSS_THRESHOLD:
+                self.spawn_boss()
+```
 
-            # Спавн обычных врагов по таймеру
-            if random.random() < 1.0 / max(40, 80 - self.level.spawn_interval):
-                self.spawn_enemy()
+ПРОВЕРКА (регрессия прогрессии — victory-ветка ещё не должна сработать
+на низких уровнях):
 
-            # Проверка на повышение уровня и спавн босса
-            self.handle_level_up()
+```powershell
+.venv\Scripts\python.exe tests\test_progression.py
+```
 
-    def draw(self) -> None:
-        """Отрисовка кадра."""
-        SCREEN.fill(COLORS["BLACK"])
+Ожидается последняя строка: `ИТОГО: 8 PASS / 0 FAIL`
 
-        # Игрок
-        self.player.image.set_alpha(200 if pygame.time.get_ticks() % 300 < 150 else 255)
-        SCREEN.blit(self.player.image, self.player.rect)
+---
 
-        # Пули
-        for bullet in self.bullets:
-            SCREEN.blit(bullet.image, bullet.rect)
+### Шаг 6.4. Два экрана: GAME OVER и VICTORY
 
-        # Враги (не уничтоженные)
-        for enemy in self.enemies:
-            if enemy.hp <= 0:
-                continue
-            SCREEN.blit(enemy.image, enemy.rect)
+ФАЙЛ: `main.py`.
 
-        # Частицы (над всеми другими объектами)
-        for particle in self.particles:
-            SCREEN.blit(particle.image, particle.rect)
+НАЙДИ (в конце метода `draw()`, блок из сессии 4):
 
-        # UI: заголовок
-        title = self.font.render("Galaxy Shooter", True, COLORS["WHITE"])
-        SCREEN.blit(title, (10, 10))
+```python
+        # Экран поражения
+        if self.game_over:
+            over = self.big_font.render("GAME OVER", True, COLORS["WHITE"])
+            hint = self.small_font.render("SPACE — рестарт", True, COLORS["YELLOW"])
+            self.screen.blit(over, over.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20)))
+            self.screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20)))
+```
 
-        # UI: очки
-        score_text = self.small_font.render(f"Score: {self.score}", True, COLORS["YELLOW"])
-        SCREEN.blit(score_text, (10, 50))
+ЗАМЕНИ НА:
 
-        # UI: уровень и прогресс
-        level_info = (f"Lvl {self.level.level_number} | "
-                      f"{self.enemies_killed_this_level}/{self.level.enemies_to_kill_for_next_level}")
-        level_text = self.small_font.render(level_info, True, COLORS["WHITE"])
-        SCREEN.blit(level_text, (WIDTH // 2 - 160, 10))
+```python
+        # Экраны Game Over / Victory
+        if self.game_over:
+            over = self.big_font.render("GAME OVER", True, COLORS["RED"])
+            hint = self.small_font.render("SPACE — рестарт", True, COLORS["WHITE"])
+            self.screen.blit(over, over.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20)))
+            self.screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20)))
+        elif self.victory:
+            win = self.big_font.render("VICTORY!", True, COLORS["GREEN"])
+            hint = self.small_font.render(
+                f"Пройден уровень {VICTORY_LEVEL}! SPACE — заново",
+                True, COLORS["YELLOW"])
+            self.screen.blit(win, win.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20)))
+            self.screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20)))
+```
 
-        # UI: жизни
-        hearts = "❤" * self.lives + ("💔" * (3 - self.lives) if self.lives < 3 else "")
-        lives_text = self.small_font.render(f"Hearts: {hearts}", True, COLORS["RED"])
-        SCREEN.blit(lives_text, (10, HEIGHT - 30))
+---
 
-    def run(self) -> None:
-        """Основной игровой цикл."""
-        running = True
-        while running:
-            CLOCK.tick(FPS)
+### Шаг 6.5. Полный сброс в reset()
 
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT or \
-                   (event.type == pygame.KEYUP and event.key == pygame.K_ESCAPE):
-                    running = False
-                # Рестарт после Game Over / Victory
-                elif self.game_over or self.victory:
-                    if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                        self.reset()
+ФАЙЛ: `main.py`.
 
-            # Обновление игры
-            if not (self.game_over or self.victory):
-                self.update()
+НАЙДИ (начало метода `reset()`):
 
-            # Отрисовка
-            self.draw()
-            pygame.display.flip()
-
-        self.cleanup()
-
+```python
     def reset(self) -> None:
         """Сброс игры."""
         self.score = 0
-        self.level = Level(level_number=1)
         self.lives = 3
+        self.level = Level(level_number=1)
         self.game_over = False
         self.victory = False
-        self.all_sprites.clear()
-        self.bullets.clear()
-        self.enemies.clear()
-        self.particles.clear()
-        self.player.rect.center = (WIDTH // 2, HEIGHT - 60)
+```
 
-    def cleanup(self) -> None:
-        """Очистка ресурсов."""
-        pygame.quit()
+ЗАМЕНИ НА:
 
-
-# ==================== Точка входа ====================
-
-def main() -> None:
-    """Точка входа в игру."""
-    game = Game()
-    game.run()
-
-
-if __name__ == "__main__":
-    main()
+```python
+    def reset(self) -> None:
+        """Сброс игры."""
+        self.score = 0
+        self.lives = 3
+        self.level = Level(level_number=1)
+        self.game_over = False
+        self.victory = False
+        self.enemies_killed_this_level = 0
+        self.enemy_spawn_timer = 0
 ```
 
 ---
 
-## 🧪 Как запустить
+### Шаг 6.6. Финальный интеграционный тест
 
-```bash
-pip install pygame>=2.4.0
-python main.py
+СОЗДАЙ ФАЙЛ: `tests/test_final.py`.
+
+```python
+"""Финал: победа по уровню, заморозка цикла, полный рестарт, экраны."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import random
+random.seed(6)
+
+import pygame
+
+
+class FakeKeys(dict):
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
+
+
+class FakeClock:
+    t = 1000
+
+
+pygame.time.get_ticks = lambda: FakeClock.t
+pygame.key.get_pressed = lambda: FakeKeys({pygame.K_SPACE: True})
+
+results = []
+
+
+def check(name, cond, detail=""):
+    results.append((name, bool(cond)))
+    print(("[PASS] " if cond else "[FAIL] ") + name + ((" -- " + str(detail)) if detail else ""))
+
+
+import main as gm
+from game.enemy_sprite import Enemy
+from game.config import VICTORY_LEVEL, WIDTH, HEIGHT
+
+g = gm.Game()
+TARGET = (403, 300)
+
+
+def keep_target():
+    for s in list(g.enemies):
+        if s.enemy_type == "simple":
+            s.rect.center = TARGET
+            return
+    e = Enemy("simple")
+    e.rect.center = TARGET
+    g.enemies.add(e)
+    g.all_sprites.add(e)
+
+
+# --- Часть 1. Победа ---
+frames = 0
+try:
+    while not g.victory and frames < 6000:
+        FakeClock.t += 250          # каждый кадр кулдаун истёк
+        g.update()
+        keep_target()
+        frames += 1
+    crashed = False
+except Exception:
+    import traceback
+    traceback.print_exc()
+    crashed = True
+
+check("F1. Победа достигается фармом без краша",
+      not crashed and g.victory is True,
+      f"кадров={frames}, lvl={g.level.level_number}")
+check("F2. Уровень победы = VICTORY_LEVEL + 1",
+      g.level.level_number == VICTORY_LEVEL + 1,
+      f"lvl={g.level.level_number}, VICTORY_LEVEL={VICTORY_LEVEL}")
+
+# --- Цикл замер после победы ---
+snap_bullets = tuple(sorted(b.rect.center for b in g.bullets))
+snap_counts = (len([s for s in g.all_sprites]), len([s for s in g.enemies]))
+for _ in range(20):
+    FakeClock.t += 250
+    g.update()
+check("F3. update() заморожен при victory",
+      tuple(sorted(b.rect.center for b in g.bullets)) == snap_bullets and
+      (len([s for s in g.all_sprites]), len([s for s in g.enemies])) == snap_counts)
+
+# --- Экран победы рисуется ---
+try:
+    g.draw()
+    check("F4. draw() с экраном победы без ошибок", True)
+except Exception as ex:
+    check("F4. draw() с экраном победы без ошибок", False, repr(ex))
+
+# --- Часть 2. Рестарт из поражения ---
+g.reset()
+
+px = g.player.rect.centerx
+py = g.player.rect.top
+enemy = Enemy("simple")
+enemy.rect.center = (px, py - 10)
+g.enemies.add(enemy)
+g.all_sprites.add(enemy)
+b = gm.Bullet(x=px - 20, y=py + 25)
+b.rect.center = (px, py - 5)
+g.bullets.add(b)
+g.all_sprites.add(b)
+g.lives = 1
+g.handle_collisions()
+check("F5. Поражение воспроизводится после reset()", g.game_over is True,
+      f"lives={g.lives}")
+
+# --- Полный сброс ---
+g.reset()
+check("F6. Флаги сброшены", g.game_over is False and g.victory is False)
+check("F7. Счётчики обнулены",
+      g.score == 0 and g.lives == 3 and g.level.level_number == 1 and
+      g.enemies_killed_this_level == 0 and g.enemy_spawn_timer == 0,
+      f"score={g.score}, lives={g.lives}, killed={g.enemies_killed_this_level}, "
+      f"timer={g.enemy_spawn_timer}")
+check("F8. Группы пусты, игрок на месте",
+      len([s for s in g.enemies]) == 0 and len([s for s in g.bullets]) == 0 and
+      len([s for s in g.particles]) == 0 and
+      g.player in [s for s in g.all_sprites] and
+      g.player.rect.center == (WIDTH // 2, HEIGHT - 60))
+
+# --- Игра идёт после рестарта ---
+fired = False
+try:
+    for _ in range(60):
+        FakeClock.t += 250
+        g.update()
+        if len([s for s in g.bullets]) > 0:
+            fired = True
+    check("F9. После рестарта игра стреляет и живёт", fired)
+except Exception as ex:
+    check("F9. После рестарта игра стреляет и живёт", False, repr(ex))
+
+print()
+total_pass = sum(1 for _, c in results if c)
+print(f"ИТОГО: {total_pass} PASS / {len(results) - total_pass} FAIL")
+sys.exit(0 if total_pass == len(results) else 1)
+```
+
+ПРОВЕРКА:
+
+```powershell
+.venv\Scripts\python.exe tests\test_final.py
+```
+
+Ожидается последняя строка: `ИТОГО: 9 PASS / 0 FAIL`
+
+---
+
+### Шаг 6.7. Подключить тест к раннеру
+
+ФАЙЛ: `tests/run_all.py`.
+
+НАЙДИ:
+
+```python
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+    "test_gameover.py",
+    "test_boss.py",
+]
+```
+
+ЗАМЕНИ НА:
+
+```python
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+    "test_gameover.py",
+    "test_boss.py",
+    "test_final.py",
+]
 ```
 
 ---
 
-## ✅ Чеклист завершения проекта
+### Шаг 6.8. Финальная проверка всего проекта
 
-- [ ] Игра запускается без ошибок
-- [ ] Корабль управляется WASD/стрелками, не выходит за границы экрана
-- [ ] Стрельба пробелом с ограничением скорострельности (~200 мс)
-- [ ] Пули исчезают, улетев за экран
-- [ ] Враги спавнятся сверху и падают вниз
-- [ ] На уровнях 1–2 — только простые красные враги
-- [ ] На уровне 3+ — появляются быстрые синие враги
-- [ ] С каждым уровнем интервал спавна уменьшается (80 → ... → 40)
-- [ ] На уровне 6 и выше — боссы появляются (HP=10, большой размер, +100 очков)
-- [ ] При попадании пули во врага — отскок и всплеск частиц
-- [ ] При столкновении с игроком пуля наносит урон, уменьшая жизни
-- [ ] Экраны Game Over / Victory отображаются корректно
-- [ ] Перезапуск по пробелу работает после победы/поражения
-- [ ] UI (очки, жизни, уровень) отрисовывается в левом верхнем углу
+```powershell
+.venv\Scripts\python.exe tests\run_all.py
+```
+
+Ожидаемое окончание вывода:
+
+```
+ALL TESTS PASSED (7)
+```
+
+Ручная проверка (если есть дисплей):
+
+```powershell
+.venv\Scripts\python.exe main.py
+```
+
+Сценарий: проиграй (потеряй 3 сердца) → `GAME OVER`, `SPACE` → игра заново;
+затем фарми до уровня выше 10 → зелёный `VICTORY!`, `SPACE` → снова с 1 уровня.
 
 ---
 
-## 🎉 Поздравляем! Игра готова к тестированию!
+## 🐛 Если что-то пошло не так
+
+| Симптом | Причина | Действие |
+|---------|---------|----------|
+| F1 `[FAIL]`: победа не наступает за 6000 кадров | Ветка victory стоит ПОСЛЕ spawn_boss без `return`, либо условие `>=` вместо `>` | Сверь метод с листингом 6.3 посимвольно |
+| F2 `[FAIL]`: lvl != VICTORY_LEVEL + 1 | Условие `>= VICTORY_LEVEL` | Должно быть строго `> VICTORY_LEVEL` |
+| F3 `[FAIL]`: спрайты двигаются после победы | Нарушена первая строка `update()` | Верни: `if self.game_over or self.victory: return` |
+| F7 `[FAIL]`: killed/timer не нули | Пропущен шаг 6.5 | Выполни шаг 6.5 |
+| F9 `[FAIL]`: нет выстрелов | Сбита кулдаун-логика или пробел не «зажат» в тесте | Не меняй `player_sprite.py`; сверь листинг 6.6 |
+| B/P/G/C-тесты упали после шагов | Задеты соседние методы | `git checkout -- main.py`; повтори шаги по одному |
+
+---
+
+## 🚦 Чеклист завершения сессии
+
+- [ ] Победа наступает при переходе на уровень `VICTORY_LEVEL + 1`
+- [ ] Экран VICTORY зелёный с подсказкой, GAME OVER красный
+- [ ] `reset()` обнуляет все поля состояния и группы
+- [ ] `tests/test_final.py` → 9 PASS / 0 FAIL
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (7)`
+- [ ] Модули `game/*` не изменялись (кроме `config.py`, шаг 6.1)
+
+---
+
+## 🎉 Проект завершён — итоговое состояние игры
+
+| Возможность | Реализация |
+|-------------|------------|
+| Корабль WASD/стрелки, границы экрана | `game/player_sprite.py` |
+| Стрельба пробелом, кулдаун 200 мс | `Player.shoot` + тесты 3a/3b |
+| Отскок пуль, урон игроку от отскочившей пули | `handle_collision_enemy_with_bullet` |
+| Враги simple/fast/boss, волны, глаз босса | `game/enemy_sprite.py` |
+| Взрывы частиц | `game/particles.py` + тест C7 |
+| Прогрессия: уровни, интервал спавна, пулы типов | `game/game_state.py` + P1–P7 |
+| Боссы с 10 HP, +100 очков, HP-бар | тест C10–C13, B8–B12 |
+| Game Over при 0 жизней + экран | сессия 4 + G1–G5 |
+| Victory после уровня 10 + экран | сессия 6 + F1–F4 |
+| Рестарт по SPACE с полным сбросом | `reset()` + F5–F9 |
+| Регрессионный набор: 74 автопроверки | `tests/run_all.py` |
+
+**Финальная команда проверки:**
+
+```powershell
+.venv\Scripts\python.exe tests\run_all.py
+```

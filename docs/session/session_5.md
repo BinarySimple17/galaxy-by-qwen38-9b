@@ -1,400 +1,280 @@
-# Сессия 5: Прогрессия сложности и боссы ⬆️👹
+# Сессия 5: Прогрессия и боссы ⬆️👹 (v2 — доработка)
 
-## 📅 Дата начала: [вставить дату]
-
----
-
-## 🎯 Цель сессии
-Реализовать систему уровней (прогрессию сложности):
-- После уничтожения N врагов — повышение уровня (+1)
-- С каждым уровнем уменьшается интервал спавна врагов (минимум 40 кадров)
-- Уровень 3+ → появляются быстрые синие враги
-- Уровень 6+ → появляются боссы
-
----
-
-## ✅ Результат после сессии
-Игра запускается: при уничтожении достаточного количества врагов уровень повышается, скорость спавна увеличивается, появляются более опасные типы врагов. На уровне 6 и выше — боссы (крупные красные круги с большим глазом, HP=10).
+> **ВАЖНО:** Это ПЕРЕРАБОТАННАЯ сессия. Вся механика прогрессии **уже
+> реализована и покрыта тестами** `tests/test_progression.py` (P1–P7):
+> - повышение уровня по порогу очков (`handle_level_up`);
+> - интервал спавна = `max(40, 80 - level*5)` (свойство `Level.spawn_interval`);
+> - босс спавнится при переходе на уровень ≥ `LEVEL_BOSS_THRESHOLD`;
+> - тип `"boss"` гарантированно есть в пуле типов с уровня 6.
+>
+> Логику в этой сессии **не меняем**. Добавляем только:
+> 1. HP-бар босса в интерфейсе;
+> 2. отдельные юнит-тесты боссовой логики.
 
 ---
 
-## 🛠 Задачи
+## ⚠️ Правила для агента (обязательные)
 
-### 1. Создать файл `game/game_state.py` (~5 мин)
+1. Меняй только файлы, указанные в шагах: `main.py`, `tests/run_all.py`
+   и новый файл `tests/test_boss.py`.
+2. Файлы `game/game_state.py` и `game/enemy_sprite.py` **не трогать** —
+   их логика уже готова и проверена.
+3. Каждый шаг: «НАЙДИ» → точный якорь, «ЗАМЕНИ НА» → блок целиком,
+   затем «ПРОВЕРКА». Упало — `git checkout -- main.py` и шаг заново.
+4. Отступы — 4 пробела на уровень. Копируй блоки без изменений.
+5. Все команды — из корня проекта в PowerShell через `.venv\Scripts\python.exe`.
+
+---
+
+## 📌 Текущее состояние
+
+| Элемент | Где живёт | Статус |
+|---------|-----------|--------|
+| Формулы уровня | `game/game_state.py::Level` (свойства) | ✅ тест P1 |
+| Повышение уровня по очкам | `main.py::handle_level_up` | ✅ тест P2–P4 |
+| Спавн босса при переходе порога | `main.py::handle_level_up` | ✅ тест P7 |
+| Пул типов врагов по уровню | `game/game_state.py::get_available_enemy_types` | ✅ тест P6 |
+| HP-бар босса в UI | `draw()` | ❌ **нет** |
+| Юнит-тесты боссовой логики | `tests/` | ❌ **нет** |
+
+---
+
+## ✅ Определение готовности (Definition of Done)
+
+- [ ] `tests/test_boss.py` → `ИТОГО: 11 PASS / 0 FAIL`
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (6)`
+- [ ] Изменены только `main.py` (блок HP-бара), `tests/run_all.py`, добавлен `tests/test_boss.py`
+
+---
+
+## 🛠 Шаги
+
+### Шаг 5.1. HP-бар босса в draw()
+
+ФАЙЛ: `main.py`.
+
+НАЙДИ (конец метода `draw()`, две строки вывода жизней):
 
 ```python
-"""game/game_state.py — Уровни и прогрессия сложности."""
-
-
-class Level:
-    """Уровень игры."""
-
-    def __init__(self, level_number: int = 1) -> None:
-        self.level_number = level_number
-
-        # Интервал спавна врагов (кадров между появлениями)
-        # Стартовый интервал: 80 кадров (~1.3 сек при 60 FPS)
-        # Каждый уровень уменьшает интервал на 5 кадров, минимум 40
-        self.spawn_interval = max(40, 80 - level_number * 5)
-
-        # Количество врагов, которое нужно уничтожить для повышения уровня
-        # Уровень Y → нужно уничтожить X × Y врагов
-        self.enemies_to_kill_for_next_level: int = (level_number + 1) * 2
-
-        # Порог очков для победы на уровне (X × Y, где X=10, Y=current_level)
-        self.victory_score_threshold: int = level_number * 10
-
-    def increase(self) -> None:
-        """Увеличить уровень."""
-        self.level_number += 1
-        self.spawn_interval = max(40, 80 - self.level_number * 5)
-        self.enemies_to_kill_for_next_level = (self.level_number + 1) * 2
-        self.victory_score_threshold = self.level_number * 10
-
-
-def get_available_enemy_types(level: int) -> list[str]:
-    """Возвращает список доступных типов врагов для данного уровня."""
-    if level == 1 or level == 2:
-        return ["simple"]
-    elif level < 3:
-        return ["simple", "fast"]
-    else:
-        # Уровень 6+ → появляются боссы
-        types = ["simple"] * (level // 2) + \
-                 ["fast"] * ((level + 1) // 3) + \
-                 ["boss"] if level >= 6 else []
-        return types[:min(level % 4 + 1, len(types))]
-
-
-def get_boss_health() -> int:
-    """Здоровье босса."""
-    return 10
-
-
-def get_boss_size() -> int:
-    """Размер спрайта босса (в пикселях)."""
-    return 76
+        lives_text = self.small_font.render(f"Hearts: {hearts_alive}{hearts_broken}", True, COLORS["RED"])
+        self.screen.blit(lives_text, (10, HEIGHT - 30))
 ```
 
-### 2. Обновить `main.py` с поддержкой уровней (~6 мин)
-
-#### А. В импорте добавить `Level`:
+ЗАМЕНИ НА:
 
 ```python
-from game.game_state import Level, get_available_enemy_types
+        lives_text = self.small_font.render(f"Hearts: {hearts_alive}{hearts_broken}", True, COLORS["RED"])
+        self.screen.blit(lives_text, (10, HEIGHT - 30))
+
+        # HP-бар босса (правый нижний угол)
+        bosses_alive = [e for e in self.enemies if e.enemy_type == "boss" and e.hp > 0]
+        if bosses_alive:
+            boss = bosses_alive[0]
+            bar_w = int((boss.hp / boss.max_hp) * 180)
+            pygame.draw.rect(self.screen, COLORS["RED"],
+                             (WIDTH - 220, HEIGHT - 28, 184, 12), 1)
+            pygame.draw.rect(self.screen, COLORS["GREEN"],
+                             (WIDTH - 218, HEIGHT - 26, max(0, bar_w), 8))
+            label = self.small_font.render(
+                f"BOSS {boss.hp}/{boss.max_hp}", True, COLORS["WHITE"])
+            self.screen.blit(label, (WIDTH - 220, HEIGHT - 50))
 ```
 
-#### Б. В классе `Game` — инициализация уровня:
+ПРОВЕРКА:
 
-```python
-class Game:
-    """Основной игровой цикл."""
-
-    def __init__(self) -> None:
-        self.font = pygame.font.Font(None, 36)
-        self.small_font = pygame.font.Font(None, 24)
-        self.all_sprites: List[pygame.sprite.Sprite] = []
-        self.bullets: List[Bullet] = []
-        self.enemies: List[Enemy] = []
-
-        # Спрайты — теперь сущности уровня
-        self.player = Player()
-        self.score = 0
-        self.level = Level(level_number=1)   # ← создаём уровень
-
-        self.lives = 3
-        self.game_over = False
-        self.victory = False
-
-        self.enemy_spawn_timer: int = 0
-        self.enemy_spawn_interval: int = 80
-
-        # Трекер для повышения уровня
-        self.enemies_killed_this_level: int = 0
+```powershell
+.venv\Scripts\python.exe -c "import os; os.environ['SDL_VIDEODRIVER']='dummy'; import main; g=main.Game(); g.draw(); print('draw OK')"
 ```
 
-#### В. Обновить метод `spawn_enemy()` — выбирать врага с учётом уровня:
+Ожидается вывод: `draw OK`
+
+---
+
+### Шаг 5.2. Юнит-тесты боссов и прогрессии
+
+СОЗДАЙ ФАЙЛ: `tests/test_boss.py`.
 
 ```python
-def spawn_enemy(self) -> None:
-    """Спавн нового врага сверху."""
-    # Выбираем доступные типы для текущего уровня
-    available_types = get_available_enemy_types(self.level.level_number)
+"""Юнит-тесты прогрессии и боссов: пулы типов, формулы, спавн, HP-бар."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
 
-    if not available_types:
-        available_types = ["simple"]  # fallback, если нет доступных типов
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    enemy_type = random.choice(available_types[:min(self.level.level_number % 3 + 1, len(available_types))])
+import random
+random.seed(5)
 
-    x = random.randint(20, WIDTH - 20)
-    y = random.randint(-40, -50)
-
-    enemy = Enemy(enemy_type=enemy_type)
-    enemy.rect.centerx = x
-    enemy.rect.top = y
-
-    self.enemies.append(enemy)
-    self.all_sprites.append(enemy)
+import pygame
 
 
-def spawn_enemy_at_boss_position(self) -> None:
-    """Спавн босса в центре сверху."""
-    boss_x = WIDTH // 2 - get_boss_size() // 2
-    boss_y = random.randint(-100, -60)
-
-    boss = Enemy(enemy_type="boss")
-    boss.rect.centerx = boss_x + get_boss_size() // 2
-    boss.rect.top = boss_y
-
-    self.enemies.append(boss)
-    self.all_sprites.append(boss)
+class FakeKeys(dict):
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
 
 
-def handle_level_up(self) -> None:
-    """Проверка на повышение уровня."""
-    if self.level.victory_score_threshold > 0 and self.score >= self.level.victory_score_threshold:
-        # Уровень повышен — сбрасываем счётчик уничтоженных врагов
-        self.enemies_killed_this_level = 0
-        self.level.increase()
+pygame.time.get_ticks = lambda: 1000
+pygame.key.get_pressed = lambda: FakeKeys({})
 
-        # Визуальный эффект повышения уровня (например, мигающий текст)
-        return True
+results = []
 
-    return False
+
+def check(name, cond, detail=""):
+    results.append((name, bool(cond)))
+    print(("[PASS] " if cond else "[FAIL] ") + name + ((" -- " + str(detail)) if detail else ""))
+
+
+from game.config import LEVEL_BOSS_THRESHOLD, WIDTH, MIN_SPAWN_INTERVAL
+from game.game_state import Level, increase_level, get_available_enemy_types
+from game.enemy_sprite import Enemy, spawn_boss
+import main as gm
+
+# --- Пулы типов ---
+p1 = get_available_enemy_types(Level(1))
+p2 = get_available_enemy_types(Level(2))
+p3 = get_available_enemy_types(Level(3))
+p6 = get_available_enemy_types(Level(6))
+p9 = get_available_enemy_types(Level(9))
+
+check("B1. Уровень 1: только simple", p1 == ["simple"], f"{p1}")
+check("B2. Уровень 2: только simple", p2 == ["simple"], f"{p2}")
+check("B3. Уровень 3: fast доступен, boss ещё нет",
+      "fast" in p3 and "boss" not in p3, f"{p3}")
+check("B4. Уровни 6 и 9: boss всегда в пуле",
+      "boss" in p6 and "boss" in p9,
+      f"{sorted(set(p6))} / {sorted(set(p9))}")
+
+all_valid = all(set(get_available_enemy_types(Level(n))) <= {"simple", "fast", "boss"}
+                for n in range(1, 13))
+check("B5. В пулах нет неизвестных типов", all_valid)
+
+
+# --- Формулы Level ---
+lv = Level(1)
+increase_level(lv)
+check("B6a. increase_level: номер +1", lv.level_number == 2, f"lvl={lv.level_number}")
+check("B6b. increase_level: свойства пересчитались",
+      lv.spawn_interval == max(MIN_SPAWN_INTERVAL, 80 - lv.level_number * 5) and
+      lv.enemies_to_kill_for_next_level == 6 and lv.victory_score_threshold == 20,
+      f"int={lv.spawn_interval}, kill={lv.enemies_to_kill_for_next_level}, "
+      f"thr={lv.victory_score_threshold}")
+check("B7. Интервал упирается в минимум",
+      Level(20).spawn_interval == MIN_SPAWN_INTERVAL,
+      f"int={Level(20).spawn_interval}")
+
+# --- Босс как сущность ---
+boss = Enemy("boss")
+check("B8. Характеристики босса",
+      boss.max_hp == 10 and boss.score_value == 100 and boss.rect.width == 76,
+      f"hp={boss.max_hp}, pts={boss.score_value}, w={boss.rect.width}")
+
+sb = spawn_boss()
+check("B9. spawn_boss геометрия",
+      sb.rect.top < 0 and 0 <= sb.rect.centerx <= WIDTH,
+      f"top={sb.rect.top}, cx={sb.rect.centerx}")
+
+# --- Спавн босса при переходе порога уровня 6 ---
+g = gm.Game()
+g.level = Level(LEVEL_BOSS_THRESHOLD - 1)     # уровень 5
+g.score = g.level.victory_score_threshold     # мгновенно достигнут порог
+g.handle_level_up()
+bosses_now = sum(1 for e in g.enemies if e.enemy_type == "boss")
+check("B10. Переход 5->6 приводит босса",
+      g.level.level_number == 6 and bosses_now >= 1,
+      f"lvl={g.level.level_number}, боссов={bosses_now}")
+
+# --- Отрисовка с живым боссом не падает (HP-бар) ---
+try:
+    g.draw()
+    check("B11. draw() с боссом и HP-баром без ошибок", True)
+except Exception as ex:
+    check("B11. draw() с боссом и HP-баром без ошибок", False, repr(ex))
+
+print()
+total_pass = sum(1 for _, c in results if c)
+print(f"ИТОГО: {total_pass} PASS / {len(results) - total_pass} FAIL")
+sys.exit(0 if total_pass == len(results) else 1)
 ```
 
-#### Г. Обновить метод `update()` — повышение уровня:
+ПРОВЕРКА:
 
-```python
-def update(self) -> None:
-    """Обновление состояния игры."""
-    if not (self.game_over or self.victory):
-        self.player.update()
-        self.shoot()
-
-        # Удаляем пули, улетевшие за экран
-        for bullet in list(self.bullets):
-            if bullet.is_offscreen():
-                bullet.kill()
-
-        # Проверка попаданий пуль во врагов
-        self.handle_collisions()
-
-        # Обновление всех живых сущностей
-        for entity in list(self.all_sprites):
-            entity.update()
-
-        # Спавн врагов по таймеру
-        if random.random() < 1.0 / max(40, 80 - self.level.spawn_interval):
-            self.spawn_enemy()
+```powershell
+.venv\Scripts\python.exe tests\test_boss.py
 ```
 
-#### Д. Добавить обработку боссов — спавн босса при повышении уровня:
+Ожидается последняя строка: `ИТОГО: 11 PASS / 0 FAIL`
+
+---
+
+### Шаг 5.3. Подключить тест к раннеру
+
+ФАЙЛ: `tests/run_all.py`.
+
+НАЙДИ:
 
 ```python
-def spawn_boss(self) -> None:
-    """Спавн босса."""
-    boss = Enemy(enemy_type="boss")
-    boss.rect.centerx = WIDTH // 2 - 38  # центрируем
-    boss.rect.top = random.randint(-100, -60)
-
-    self.enemies.append(boss)
-    self.all_sprites.append(boss)
-
-
-def handle_level_up(self) -> None:
-    """Проверка на повышение уровня и спавн босса."""
-    if (self.level.victory_score_threshold > 0 and
-            self.score >= self.level.victory_score_threshold):
-
-        # Уровень повышен — сбрасываем счётчик уничтоженных врагов
-        self.enemies_killed_this_level = 0
-        self.level.increase()
-
-        # Если уровень 6 или выше — спавним босса
-        if self.level.level_number >= 6:
-            self.spawn_boss()
-
-
-# В update():
-def update(self) -> None:
-    """Обновление состояния игры."""
-    if not (self.game_over or self.victory):
-        self.player.update()
-        self.shoot()
-
-        # Удаляем пули, улетевшие за экран
-        for bullet in list(self.bullets):
-            if bullet.is_offscreen():
-                bullet.kill()
-
-        # Проверка попаданий пуль во врагов
-        self.handle_collisions()
-
-        # Обновление всех живых сущностей
-        for entity in list(self.all_sprites):
-            entity.update()
-
-        # Спавн обычных врагов по таймеру
-        if random.random() < 1.0 / max(40, 80 - self.level.spawn_interval):
-            self.spawn_enemy()
-
-        # Проверка на повышение уровня
-        self.handle_level_up()
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+    "test_gameover.py",
+]
 ```
 
-### 3. Обновить `handle_collisions()` — уничтожение врага и начисление очков:
+ЗАМЕНИ НА:
 
 ```python
-def handle_bullet_enemy_collisions(self) -> None:
-    """Проверка попаданий пуль во врагов."""
-    for enemy in list(self.enemies):  # перебираем копию списка
-        if enemy.hp <= 0:
-            continue
-
-        hits = pygame.sprite.spritecollide(enemy, self.bullets, False)
-        for bullet in hits:
-            self.handle_collision_enemy_with_bullet(enemy, bullet)
-
-
-def handle_collision_enemy_with_bullet(self, enemy: "Enemy", bullet: Bullet) -> None:
-    """Обработка коллизии врага с пулей игрока."""
-    if enemy.hp <= 0:
-        return
-
-    # Пуля отскакивает (враг стреляет обратно в игрока)
-    bounce_direction = bullet.bounce()
-    bullet.velocity = bounce_direction
-
-    # Если пуля попала в игрока — наносим урон, иначе уничтожаем врага
-    if pygame.sprite.collide_rect(bullet, self.player):
-        self.lives -= 1
-        bullet.kill()
-        return
-
-    # Враг уничтожен
-    enemy.hp = 0
-    bullet.kill()
-
-    # Начисляем очки
-    self.score += enemy.score_value
-
-    # Увеличиваем счётчик уничтоженных врагов
-    if enemy.enemy_type == "boss":
-        self.enemies_killed_this_level += 10
-    else:
-        self.enemies_killed_this_level += 1
-
-
-def handle_collisions(self) -> None:
-    """Обработка всех коллизий."""
-    # Пули → враги
-    for enemy in list(self.enemies):
-        if enemy.hp <= 0:
-            continue
-
-        hits = pygame.sprite.spritecollide(enemy, self.bullets, False)
-        for bullet in hits:
-            self.handle_collision_enemy_with_bullet(enemy, bullet)
-```
-
-### 4. Обновить `draw()` — отображение уровня и прогресса (~2 мин):
-
-```python
-def draw(self) -> None:
-    """Отрисовка кадра."""
-    SCREEN.fill(COLORS["BLACK"])
-
-    # Игрок
-    self.player.image.set_alpha(200 if pygame.time.get_ticks() % 300 < 150 else 255)
-    SCREEN.blit(self.player.image, self.player.rect)
-
-    # Пули
-    for bullet in self.bullets:
-        SCREEN.blit(bullet.image, bullet.rect)
-
-    # Враги
-    for enemy in self.enemies:
-        if enemy.hp <= 0:
-            continue
-        SCREEN.blit(enemy.image, enemy.rect)
-
-    # Частицы (над всеми другими объектами)
-    for particle in self.particles:
-        SCREEN.blit(particle.image, particle.rect)
-
-    # UI
-    title = self.font.render("Galaxy Shooter", True, COLORS["WHITE"])
-    SCREEN.blit(title, (10, 10))
-
-    score_text = self.small_font.render(f"Score: {self.score}", True, COLORS["YELLOW"])
-    SCREEN.blit(score_text, (10, 50))
-
-    level_text = self.small_font.render(
-        f"Level: {self.level.level_number} | "
-        f"Enemies killed this level: {self.enemies_killed_this_level}/{self.level.enemies_to_kill_for_next_level}",
-        True, COLORS["WHITE"]
-    )
-    SCREEN.blit(level_text, (WIDTH // 2 - 180, 10))
-
-    lives_text = self.small_font.render(
-        f"Hearts: {'❤' * self.lives}{'💔' * (3 - self.lives)}", True, COLORS["RED"]
-    )
-    SCREEN.blit(lives_text, (10, HEIGHT - 30))
-
-    # Индикатор прогресса босса (если есть)
-    if any(e.enemy_type == "boss" for e in self.enemies):
-        boss = [e for e in self.enemies if e.enemy_type == "boss"][0]
-        boss_health_bar = pygame.Surface((20, 6), pygame.SRCALPHA)
-        boss_max_hp = get_boss_health()
-        boss_current_hp = boss.hp
-        bar_width = int((boss_current_hp / boss_max_hp) * 180)
-        pygame.draw.rect(boss_health_bar, COLORS["GREEN"], (0, 0, bar_width, 6))
-        SCREEN.blit(boss_health_bar, (WIDTH - 225, HEIGHT - 30))
-
-
-# В init():
-self.level = Level(level_number=1)
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+    "test_gameover.py",
+    "test_boss.py",
+]
 ```
 
 ---
 
-## 🧪 Как протестировать
+### Шаг 5.4. Финальная проверка сессии
 
-Запустить игру:
-
-```bash
-python main.py
+```powershell
+.venv\Scripts\python.exe tests\run_all.py
 ```
 
-**Наблюдается:**
-- На уровне 1–2 — только простые красные враги (HP=1, скорость 2.5), +10 очков за каждого
-- На уровне 3+ появляются быстрые синие враги (маленькие, волновое движение)
-- С каждым уровнем интервал спавна уменьшается: 80 → 75 → 70 → ... → 40 кадров
-- При достижении порога очков на уровне — уровень повышается, счётчик уничтоженных врагов сбрасывается
-- На уровне 6 и выше — появляются боссы (крупные красные круги с глазом, HP=10, медленно падают), +100 очков за каждого
+Ожидаемое окончание вывода:
+
+```
+ALL TESTS PASSED (6)
+```
+
+Ручная проверка (опционально): запусти игру, прокачайся до 6 уровня —
+справа внизу у босса должна появиться зелёная полоска здоровья `BOSS 10/10`,
+которая уменьшается от попаданий.
 
 ---
 
-## 🐛 Возможные проблемы
+## 🐛 Если что-то пошло не так
 
-| Проблема | Решение |
-|----------|---------|
-| Босс не появляется | Проверить условие `level.level_number >= 6` в методе `handle_level_up()` |
-| Уровень не повышается | Убедиться, что порог очков достигнут и счётчик уничтоженных врагов соответствует порогу |
-| Интервал спавна не уменьшается | Проверить формулу в `Level.increase()`: `spawn_interval = max(40, 80 - level * 5)` |
-
----
-
-## ✅ Чеклист завершения сессии
-
-- [ ] Игра запускается без ошибок
-- [ ] На уровне 1–2 — только простые враги
-- [ ] На уровне 3+ появляются быстрые синие враги
-- [ ] Интервал спавна уменьшается с каждым уровнем (80 → 75 → ... → 40)
-- [ ] При достижении порога очков уровень повышается
-- [ ] На уровне 6 и выше — появляются боссы (HP=10, большой размер)
+| Симптом | Причина | Действие |
+|---------|---------|----------|
+| B10 `[FAIL]`: боссов=0 | Затронут `handle_level_up` или `spawn_boss` | Сверь `main.py::handle_level_up` с состоянием до правки; ничего в нём менять этой сессией не нужно |
+| B10 `[FAIL]`: lvl != 6 | Использован литерал вместо `LEVEL_BOSS_THRESHOLD` | Импортируй константу из `game.config` как в листинге |
+| B11 `[FAIL]` c `NameError`/`AttributeError` | Сломан блок HP-бара (отступы, имя `max_hp`) | Сверь блок шага 5.1 посимвольно; атрибут называется `max_hp` |
+| Полоса не видна в игре | Босс ещё мёртв или его нет на экране | Бар рисуется только при живом боссе (`hp > 0`) |
+| Любой C/P/G-тест упал после 5.1 | Задеты соседние строки draw() | `git checkout -- main.py`, повтори 5.1 |
 
 ---
 
-## 🚀 Переходим к последней сессии → Сессия 6: Game Over / Victory + UI
+## 🚦 Чеклист завершения сессии
+
+- [ ] HP-бар босса рисуется в правом нижнем углу, ширина пропорциональна `hp/max_hp`
+- [ ] `tests/test_boss.py` → 11 PASS / 0 FAIL
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (6)`
+- [ ] Файлы `game/*` не изменялись
+
+---
+
+## 🚀 Переходим к следующей сессии → Сессия 6: Победа, рестарт и финальный UI

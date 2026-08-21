@@ -144,10 +144,10 @@ class Game:
         self.level = Level(level_number=1)
         self.game_over = False
         self.victory = False
-        self.all_sprites.clear()
-        self.bullets.clear()
-        self.enemies.clear()
-        self.particles.clear()
+        self.all_sprites.empty()
+        self.bullets.empty()
+        self.enemies.empty()
+        self.particles.empty()
         self.all_sprites.add(self.player)
         self.player.rect.center = (WIDTH // 2, HEIGHT - 60)
 

@@ -1,300 +1,666 @@
-# Сессия 3: Враги и коллизии пуль 🎮
+# Сессия 3: Тестовый фундамент 🧪 (v2 — переработана под текущий код)
 
-## 📅 Дата начала: [вставить дату]
+> **ВАЖНО:** Это ПЕРЕРАБОТАННАЯ сессия. Игровое ядро (враги, коллизии, отскок пуль,
+> частицы, прогрессия уровней, боссы) **уже реализовано и работает** в файлах
+> `main.py` и `game/`. Старая версия этой сессии с монолитным кодом устарела —
+> НЕ следуй ей.
+>
+> Задача этой сессии — **не менять игру**, а создать автоматические тесты,
+> которые будут защищать код при доработках в сессиях 4–6.
+
+---
+
+## ⚠️ Правила для агента (обязательные)
+
+1. В этой сессии **ЗАПРЕЩЕНО** изменять файлы `main.py` и любые файлы в `game/`.
+   Разрешено создавать файлы **только внутри папки `tests/`**.
+2. Выполняй шаги строго по порядку. Не пропускай и не объединяй шаги.
+3. После каждого шага запускай команду проверки из раздела «ПРОВЕРКА».
+4. Если проверка упала — сравни свой файл с листингом из задания **посимвольно**
+   (отступы в Python критичны: 4 пробела на уровень) и исправь расхождение.
+5. Запрещено: устанавливать пакеты через pip, обновлять зависимости,
+   создавать новые виртуальные окружения, рефакторить существующий код.
+6. Все команды выполняются из корня проекта (`snake_38-9b/`) в PowerShell.
+7. Python берём из готового окружения: `.venv\Scripts\python.exe`.
+
+---
+
+## 📌 Текущее состояние проекта (после сессий 0–2)
+
+| Файл | Что внутри | Статус |
+|------|-----------|--------|
+| `main.py` | Класс `Game`: группы спрайтов, коллизии, уровни, боссы, UI | ✅ работает |
+| `game/config.py` | Все константы (экран, цвета, скорости, пороги) | ✅ |
+| `game/entities.py` | Базовый `Entity`, `create_rect_from_surface` | ✅ |
+| `game/player_sprite.py` | Корабль: WASD/стрелки, кулдаун выстрела | ✅ |
+| `game/bullet_sprite.py` | Пуля: полёт вверх, отскок `bounce()` | ✅ |
+| `game/enemy_sprite.py` | Враги simple/fast/boss, спавн сверху | ✅ |
+| `game/particles.py` | Частицы взрыва | ✅ |
+| `game/game_state.py` | Уровни, типы врагов по уровню | ✅ |
+| `tests/` | **нет** — создаётся в этой сессии | ❌ |
+
+Известная особенность кода (учтена в тестах): пуля летит чуть влево
+(`velocity ≈ (-0.99, -7.94)`), а враги появляются над экраном
+(`y ∈ [-50, -40]`). Это норма, не баг.
 
 ---
 
 ## 🎯 Цель сессии
-Добавить врагов в игру. Они спавнятся сверху, падают вниз. Пули игрока уничтожают их — начисляются очки.
+
+Создать папку `tests/` с четырьмя автотестами и раннером `run_all.py`.
+Тесты запускаются без окна игры (виртуальный видеодрайвер `dummy`).
 
 ---
 
-## ✅ Результат после сессии
-Игра запускается: корабль управляется WASD, стрельба пробелом. Сверху появляются красные круги-враги, которые падают вниз. При попадании пули враг исчезает и добавляется +10 к очкам.
+## ✅ Определение готовности (Definition of Done)
+
+- [ ] Команда `.venv\Scripts\python.exe tests\run_all.py` печатает
+      `ALL TESTS PASSED (4)` и завершается без ошибок
+- [ ] Суммарно зелёных проверок: 37 (10 + 13 + 6 + 8)
+- [ ] `git status` показывает новые файлы только в `tests/`
 
 ---
 
-## 🛠 Задачи
+## 🛠 Шаги
 
-### 1. Создать файл `game/enemy_sprite.py` (~8 мин)
+### Шаг 3.0. Исходная точка
 
-```python
-"""game/enemy_sprite.py — Враги."""
-import pygame
-import random
-import math
-from typing import Optional
+ПРОВЕРКА (убедись, что игра импортируется без ошибок):
 
-
-class Enemy(pygame.sprite.Sprite):
-    """Враг — круг, падающий сверху."""
-
-    TYPES = ["simple", "fast", "boss"]
-
-    def __init__(self, enemy_type: str = "simple") -> None:
-        super().__init__()
-        self.enemy_type = enemy_type
-        self.max_hp = 1 if enemy_type != "boss" else 10
-        self.hp = self.max_hp
-        self.score_value = 10 if enemy_type == "simple" else (20 if enemy_type == "fast" else 100)
-
-        # Параметры в зависимости от типа врага
-        if enemy_type == "simple":
-            size, color, speed = 30, (239, 84, 80), 2.5
-        elif enemy_type == "fast":
-            size, color, speed = 20, (78, 191, 255), 4.5
-        else:  # boss
-            size, color, speed = 70, (239, 84, 80), 1.5
-
-        self.radius = size // 2
-        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
-
-        # Рисуем тело врага
-        pygame.draw.circle(self.image, color + (180,), (self.radius, self.radius), self.radius - 3)
-
-        # "Глаза" — только у простых и быстрых врагов
-        if enemy_type != "boss":
-            pygame.draw.circle(self.image, (255, 255, 255), (14, 12), 4)
-            pygame.draw.circle(self.image, (0, 0, 0), (14, 12), 2)
-            pygame.draw.circle(self.image, (255, 255, 255), (self.radius - 14, 12), 4)
-            pygame.draw.circle(self.image, (0, 0, 0), (self.radius - 14, 12), 2)
-
-        self.rect = self.image.get_rect()
-
-        # Скорость падения вниз по оси Y
-        self.velocity = pygame.math.Vector2(0.0, speed)
-
-    def update(self) -> None:
-        """Обновление позиции врага."""
-        self.rect.y += self.velocity.y
-
-        # Волновое движение для быстрых врагов (синих)
-        if self.enemy_type == "fast":
-            wave_offset = math.sin(pygame.time.get_ticks() / 300.0) * 1.5
-            self.rect.x += wave_offset
-
-        # Проверка: улетел за экран → удалить
-        if (self.rect.right < 0 or self.rect.left > 800 or
-                self.rect.bottom < 0 or self.rect.top > HEIGHT):
-            self.kill()
-
-
-def get_enemy_image(enemy_type: str = "simple") -> pygame.Surface:
-    """Получить изображение врага по типу."""
-    if enemy_type == "simple":
-        size, color = 30, (239, 84, 80)
-    elif enemy_type == "fast":
-        size, color = 20, (78, 191, 255)
-    else:
-        size, color = 70, (239, 84, 80)
-
-    surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
-    pygame.draw.circle(surface, color + (180,), (size, size), size - 3)
-    if enemy_type != "boss":
-        pygame.draw.circle(surface, (255, 255, 255), (14, 12), 4)
-        pygame.draw.circle(surface, (0, 0, 0), (14, 12), 2)
-        pygame.draw.circle(surface, (255, 255, 255), (size - 14, 12), 4)
-        pygame.draw.circle(surface, (0, 0, 0), (size - 14, 12), 2)
-
-    return surface
+```powershell
+.venv\Scripts\python.exe -c "import main; print('OK')"
 ```
 
-### 2. Обновить `main.py` с врагами (~7 мин)
+Ожидаемый вывод: строка `OK` (плюс баннер pygame — это нормально).
 
-Добавляем:
-- Класс `Enemy` в импорты
-- Метод `spawn_enemy()` у класса `Game` — создание и спавн нового врага
-- В цикле `update()` вызываем `enemies.update()`
-- Увеличиваем список всех спрайтов на врагов
+---
+
+### Шаг 3.1. Создать `tests/test_session2.py`
+
+ФАЙЛ: `tests/test_session2.py`.
+Если файл уже существует — сверь с листингом; при расхождении перезапиши целиком.
 
 ```python
-# В main.py — импорт:
+"""Тесты сессии 2: стрельба + пули (чеклист из docs/session/session_2.md)."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import random
+random.seed(1)
+
+import pygame
+
+PASS = []
+FAIL = []
+
+
+def check(name, cond, detail=""):
+    (PASS if cond else FAIL).append(name)
+    print(("[PASS] " if cond else "[FAIL] ") + name + (("  -- " + str(detail)) if detail else ""))
+
+
+class FakeClock:
+    t = 1000
+
+
+pygame.time.get_ticks = lambda: FakeClock.t
+
+
+class FakeKeys(dict):
+    """Словарь клавиш: отсутствующие = не нажаты."""
+
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
+
+
+print("=" * 60)
+print("Сессия 2: Стрельба + пули - автотесты")
+print("=" * 60)
+
+# --- [1] Игра запускается без ошибок ---
+try:
+    import main as gm
+    g = gm.Game()
+    check("1. Игра инициализируется без ошибок", True)
+except Exception as e:
+    check("1. Игра инициализируется без ошибок", False, repr(e))
+    sys.exit(1)
+
+space_held = FakeKeys({pygame.K_SPACE: True})
+pygame.key.get_pressed = lambda: space_held
+
+# --- [2] Пробел -> вылетает жёлтая пуля ---
+FakeClock.t = 1000
+g.update()
+check("2a. Нажатие пробела создаёт пулю", len(g.bullets) == 1, f"bullets={len(g.bullets)}")
+b = next(iter(g.bullets), None)
+if b:
+    w, h = b.image.get_size()
+    yellowish = False
+    try:
+        px = b.image.get_at((w // 2, h // 2))
+        r, gg, bl = px.r, px.g, px.b
+        yellowish = (r > 180 and gg > 150 and bl < 120)
+    except Exception:
+        pass
+    check("2b. Пуля - жёлтая полоска", (w <= 50 and h <= 20),
+          f"size={w}x{h}, center_px_yellow={yellowish}")
+    nose_x = g.player.rect.centerx + 20
+    nose_y = g.player.rect.top - 15
+    b2 = gm.Bullet(x=nose_x, y=nose_y)  # прямое создание - без сдвига за кадр
+    at_nose = b2.rect.center == (nose_x + 3, nose_y - 7)
+    check("2c. Пуля появляется из носа корабля", at_nose,
+          f"center={b2.rect.center} expected={(nose_x + 3, nose_y - 7)}")
+
+# --- [3] Cooldown ~200 мс ---
+FakeClock.t = 1100  # +100 мс после первого выстрела
+g.update()
+check("3a. Через 100 мс второй выстрел заблокирован (cooldown)",
+      len(g.bullets) == 1, f"bullets={len(g.bullets)}")
+
+FakeClock.t = 1250  # +250 мс после первого выстрела (>200)
+n_before = len(g.bullets)
+g.update()
+check("3b. После 200 мс выстрел снова разрешён",
+      len(g.bullets) == n_before + 1, f"bullets={len(g.bullets)}")
+
+# --- [4] Пуля летит вверх ---
+b = list(g.bullets)[-1] if g.bullets else None
+if b is None:
+    check("4a. Пуля движется вверх (~8 px/кадр)", False, "нет пуль")
+    check("4b. Вектор скорости направлен вверх", False, "нет пуль")
+else:
+    y_before = b.rect.centery
+    space_none = FakeKeys({})
+    pygame.key.get_pressed = lambda: space_none
+    FakeClock.t = 1300
+    g.update()
+    dy = y_before - b.rect.centery
+    check("4a. Пуля движется вверх (~8 px/кадр)", dy > 5, f"delta_y={dy}")
+    vy_up = b.velocity.y < 0
+    check("4b. Вектор скорости направлен вверх", vy_up,
+          f"velocity={tuple(round(v, 2) for v in b.velocity)}")
+
+    # --- [5] Пуля исчезает за экраном ---
+    b.rect.bottom = -60
+    is_off = b.is_offscreen
+    check("5a. is_offscreen распознаёт пулю за экраном", is_off)
+
+    total_bullets = len(g.bullets)
+    g.update()
+    still_in_list = b in g.bullets
+    check("5b. Пуля удалена из game.bullets за экраном", not still_in_list,
+          f"было={total_bullets}, осталось={len(g.bullets)}")
+
+print()
+print("=" * 60)
+print(f"ИТОГО: {len(PASS)} PASS / {len(FAIL)} FAIL")
+print("=" * 60)
+for f in FAIL:
+    print(" FAIL:", f)
+sys.exit(0 if not FAIL else 1)
+```
+
+ПРОВЕРКА:
+
+```powershell
+.venv\Scripts\python.exe tests\test_session2.py
+```
+
+Ожидается последняя строка вывода: `ИТОГО: 10 PASS / 0 FAIL`
+
+---
+
+### Шаг 3.2. Создать `tests/test_collisions.py`
+
+ФАЙЛ: `tests/test_collisions.py`.
+
+```python
+"""Тест коллизий: урон врагам, очки, частицы, kill() через pygame.sprite.Group."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import random
+random.seed(2)
+
+import pygame
+
+results = []
+
+
+def check(name, cond, detail=""):
+    results.append((name, bool(cond)))
+    print(("[PASS] " if cond else "[FAIL] ") + name + ((" -- " + str(detail)) if detail else ""))
+
+
+class FakeClock:
+    t = 1000
+
+
+pygame.time.get_ticks = lambda: FakeClock.t
+
+
+class FakeKeys(dict):
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
+
+
+import main as gm
 from game.enemy_sprite import Enemy
 
+g = gm.Game()
 
-# В классе Game:
+# --- Simple-враг: одно попадание убивает ---
+e = Enemy("simple")
+e.rect.center = (g.player.rect.centerx, 300)
+g.enemies.add(e)
+g.all_sprites.add(e)
 
-class Game:
-    """Основной игровой цикл."""
+b = gm.Bullet(x=e.rect.centerx, y=e.rect.bottom)
+b.rect.center = (e.rect.centerx, e.rect.bottom - 2)
+g.bullets.add(b)
+g.all_sprites.add(b)
 
-    def __init__(self) -> None:
-        self.font = pygame.font.Font(None, 36)
-        self.small_font = pygame.font.Font(None, 24)
-        self.all_sprites: List[pygame.sprite.Sprite] = []
-        self.bullets: List[Bullet] = []
-        # ← добавляем группу врагов
-        self.enemies: List[Enemy] = []
+v_before = pygame.math.Vector2(b.velocity)
+score0 = g.score
 
-        self.player = Player()
-        self.score = 0
-        self.level = 1
-        self.lives = 3
-        self.game_over = False
-        self.victory = False
+g.handle_collisions()
 
-        # Таймер спавна врагов
-        self.enemy_spawn_timer: int = 0
-        self.enemy_spawn_interval: int = 80  # кадров между спавном врага
+check("C1. spritecollide работает с Group (нет AttributeError)", True)
+check("C2. Вектор пули изменился (отскок)", b.velocity != v_before)
+check("C3. Пуля удалена после попадания", b not in [s for s in g.bullets])
+check("C4. Враг уничтожен (hp<=0)", e.hp <= 0, f"hp={e.hp}")
+check("C5. Враг удалён из группы (kill() работает)", e not in [s for s in g.enemies])
+check("C6. Очки +10", g.score == score0 + 10, f"score={g.score}")
+particles_count = len([s for s in g.particles])
+check("C7. Частицы взрыва созданы (12+)", particles_count >= 12, f"count={particles_count}")
+check("C8. Счётчик уровня +1", g.enemies_killed_this_level == 1)
 
-    def spawn_enemy(self) -> None:
-        """Спавн нового врага сверху."""
-        # Определяем, какие типы врагов доступны на текущем уровне
-        types = ["simple"] * (self.level // 2) + ["fast"] if self.level >= 3 else ["simple"]
-        enemy_type = random.choice(types[:min(self.level % 3 + 1, len(types))])
+# Повторный вызов не должен падать или начислять повторно
+g.handle_collisions()
+check("C9. Повторный вызов безопасен, очки не задвоены", g.score == score0 + 10)
 
-        x = random.randint(20, WIDTH - 20)
-        y = random.randint(-40, -50)
+# --- Boss: 10 HP ---
+boss = Enemy("boss")
+boss.rect.center = (400, 150)
+g.enemies.add(boss)
+g.all_sprites.add(boss)
 
-        enemy = Enemy(enemy_type=enemy_type)
-        enemy.rect.centerx = x
-        enemy.rect.top = y
+s0 = g.score
+frames = 0
+while boss.hp > 0 and frames < 50:
+    for i in range(4):
+        bb = gm.Bullet(x=boss.rect.centerx, y=boss.rect.top)
+        bb.rect.center = (boss.rect.centerx + i * 5, boss.rect.centery)
+        g.bullets.add(bb)
+        g.all_sprites.add(bb)
+    g.handle_collisions()
+    frames += 1
 
-        self.enemies.append(enemy)
-        self.all_sprites.append(enemy)
+check("C10. Босс уничтожен после попаданий", boss.hp <= 0, f"hp={boss.hp}, frames={frames}")
+check("C11. +100 очков за босса", g.score - s0 == 100, f"delta={g.score - s0}")
+check("C12. Босс удалён из группы", boss not in [s for s in g.enemies])
+check("C13. Счётчик уровня +10 за босса", g.enemies_killed_this_level == 11,
+      f"killed_counter={g.enemies_killed_this_level}")
 
-    def update(self) -> None:
-        """Обновление состояния игры."""
-        if not (self.game_over or self.victory):
-            self.player.update()
-            self.shoot()
-
-            # Удаляем пули, улетевшие за экран
-            for bullet in list(self.bullets):
-                if bullet.is_offscreen():
-                    bullet.kill()
-
-            # Обновление всех живых сущностей (игрок + пули + враги)
-            for entity in list(self.all_sprites):
-                entity.update()
-
-            # Спавн врагов по таймеру
-            self.enemy_spawn_timer += 1
-            if self.enemy_spawn_timer >= max(40, 80 - self.level * 5):
-                self.spawn_enemy()
-                self.enemy_spawn_timer = 0
+print()
+total_pass = sum(1 for _, c in results if c)
+print(f"ИТОГО: {total_pass} PASS / {len(results) - total_pass} FAIL")
+sys.exit(0 if total_pass == len(results) else 1)
 ```
 
-### 3. Обновить метод `draw()` класса `Game` (~2 мин)
+ПРОВЕРКА:
 
-Добавить отрисовку врагов:
+```powershell
+.venv\Scripts\python.exe tests\test_collisions.py
+```
+
+Ожидается последняя строка вывода: `ИТОГО: 13 PASS / 0 FAIL`
+
+---
+
+### Шаг 3.3. Создать `tests/test_progression.py`
+
+ФАЙЛ: `tests/test_progression.py`.
 
 ```python
-def draw(self) -> None:
-    """Отрисовка кадра."""
-    SCREEN.fill(COLORS["BLACK"])
+"""Прогрессия уровней: непрерывный фарм -> уровни растут, боссы доступны, без крашей."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
 
-    # Игрок
-    self.player.image.set_alpha(200 if pygame.time.get_ticks() % 300 < 150 else 255)
-    SCREEN.blit(self.player.image, self.player.rect)
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    # Пули
-    for bullet in self.bullets:
-        SCREEN.blit(bullet.image, bullet.rect)
+import random
+random.seed(7)
 
-    # Враги
-    for enemy in self.enemies:
-        if enemy.hp <= 0:
-            continue  # не рисуем уничтоженных
-        SCREEN.blit(enemy.image, enemy.rect)
+import pygame
+from game.game_state import Level, get_available_enemy_types
 
-    # UI
-    title = self.font.render("Galaxy Shooter", True, COLORS["WHITE"])
-    SCREEN.blit(title, (10, 10))
+results = []
 
-    score_text = self.small_font.render(f"Score: {self.score}", True, COLORS["YELLOW"])
-    SCREEN.blit(score_text, (10, 50))
 
-    level_text = self.small_font.render(f"Level: {self.level}", True, COLORS["WHITE"])
-    SCREEN.blit(level_text, (WIDTH // 2 + 60, 10))
+def check(name, cond, detail=""):
+    results.append((name, bool(cond)))
+    print(("[PASS] " if cond else "[FAIL] ") + name + ((" -- " + str(detail)) if detail else ""))
 
-    lives_text = self.small_font.render(
-        f"Hearts: {'❤' * self.lives}", True, COLORS["RED"]
-    )
-    SCREEN.blit(lives_text, (10, HEIGHT - 30))
+
+class FakeKeys(dict):
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
+
+
+class FakeClock:
+    t = 1000
+
+
+pygame.time.get_ticks = lambda: FakeClock.t
+pygame.key.get_pressed = lambda: FakeKeys({pygame.K_SPACE: True})
+
+# Свойства уровня соответствуют формулам из AGENTS.md
+lv = Level(3)
+check("P1. Формулы уровня", lv.spawn_interval == max(40, 80 - 15) and
+      lv.enemies_to_kill_for_next_level == 8 and lv.victory_score_threshold == 30,
+      f"interval={lv.spawn_interval}, kill={lv.enemies_to_kill_for_next_level}, "
+      f"thr={lv.victory_score_threshold}")
+
+import main as gm
+
+g = gm.Game()
+TARGET = (403, 300)  # статичная мишень на траектории пуль
+
+
+def keep_target():
+    """Держим один простой враг на линии огня (падение компенсируем)."""
+    for s in list(g.enemies):
+        if s.enemy_type == "simple":
+            s.rect.center = TARGET
+            return
+    e = gm.Enemy("simple")
+    e.rect.center = TARGET
+    g.enemies.add(e)
+    g.all_sprites.add(e)
+
+
+levels_seen = {g.level.level_number}
+types_seen = set()
+try:
+    for i in range(1500):
+        FakeClock.t += 250  # каждый кадр кулдаун истёк -> стреляем каждый кадр
+        g.update()
+        keep_target()
+        levels_seen.add(g.level.level_number)
+        types_seen |= set(s.enemy_type for s in g.enemies)
+    crashed = False
+except Exception as ex:
+    crashed = True
+    import traceback
+    traceback.print_exc()
+
+check("P2. 1500 кадров боя (выстрел каждый кадр) без краша", not crashed)
+max_lvl = max(levels_seen)
+check("P3a. Уровень вырос сильно (>6)", max_lvl > 6,
+      f"уровни: {min(levels_seen)}..{max_lvl}")
+check("P3b. Уровень растёт монотонно",
+      levels_seen == set(range(min(levels_seen), max_lvl + 1)), "пропусков нет")
+check("P4. Очки копятся соответственно уровню", g.score >= (max_lvl - 1) * 10,
+      f"score={g.score}, lvl={max_lvl}")
+check("P5. spawn_interval = формула (минимум 40)",
+      g.level.spawn_interval == max(40, 80 - max_lvl * 5),
+      f"lvl={max_lvl}, interval={g.level.spawn_interval}")
+check("P6. На уровне 6+ доступен тип boss", "boss" in get_available_enemy_types(g.level),
+      f"lvl={max_lvl}")
+check("P7. Боссы реально спавнятся из пула типов", "boss" in types_seen or max_lvl < 6,
+      f"типы за бой: {sorted(types_seen)}")
+
+print()
+total_pass = sum(1 for _, c in results if c)
+print(f"ИТОГО: {total_pass} PASS / {len(results) - total_pass} FAIL")
+sys.exit(0 if total_pass == len(results) else 1)
 ```
 
-### 4. Добавить обработку коллизий пуль с врагами (~5 мин)
+ПРОВЕРКА:
 
-В методе `update()` класса `Game` добавляем проверку: если пуля попала во врага — уменьшаем его здоровье и удаляем пулю.
+```powershell
+.venv\Scripts\python.exe tests\test_progression.py
+```
+
+Ожидается последняя строка вывода: `ИТОГО: 8 PASS / 0 FAIL`
+
+---
+
+### Шаг 3.4. Создать `tests/test_lifecycle.py`
+
+ФАЙЛ: `tests/test_lifecycle.py`.
 
 ```python
-def handle_bullet_enemy_collisions(self) -> None:
-    """Проверка попаданий пуль во врагов."""
-    for bullet in list(self.bullets):  # перебираем копию списка
-        enemy = pygame.sprite.spritecollide(bullet, self.enemies, False)[0] if \
-               pygame.sprite.spritecollideany(bullet, self.enemies) else None
+"""Жизненный цикл врага: вход сверху разрешён, выход за низ/бока - удаление."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
 
-        if enemy is not None and enemy.hp > 0:
-            enemy.hp -= 1
-            bullet.kill()  # пуля исчезает после попадания
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-            # Если враг уничтожен — удаляем его и начисляем очки
-            if enemy.hp <= 0:
-                enemy.kill()
-                self.score += enemy.score_value
+import random
+random.seed(3)
+
+import pygame
+
+results = []
 
 
-# В методе update():
-def update(self) -> None:
-    """Обновление состояния игры."""
-    if not (self.game_over or self.victory):
-        self.player.update()
-        self.shoot()
+def check(name, cond, detail=""):
+    results.append((name, bool(cond)))
+    print(("[PASS] " if cond else "[FAIL] ") + name + ((" -- " + str(detail)) if detail else ""))
 
-        # Удаляем пули, улетевшие за экран
-        for bullet in list(self.bullets):
-            if bullet.is_offscreen():
-                bullet.kill()
 
-        # Проверка попаданий пуль во врагов
-        self.handle_bullet_enemy_collisions()
+class FakeClock:
+    t = 1000
 
-        # Обновление всех живых сущностей
-        for entity in list(self.all_sprites):
-            entity.update()
 
-        # Спавн врагов по таймеру
-        self.enemy_spawn_timer += 1
-        if self.enemy_spawn_timer >= max(40, 80 - self.level * 5):
-            self.spawn_enemy()
-            self.enemy_spawn_timer = 0
+pygame.time.get_ticks = lambda: FakeClock.t
+
+
+class FakeKeys(dict):
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
+
+
+pygame.key.get_pressed = lambda: FakeKeys({})
+
+import main as gm
+from game.enemy_sprite import Enemy
+
+g = gm.Game()
+
+# --- Simple: спавн над экраном, должен выжить и падать ---
+e = Enemy("simple")
+e.rect.centerx = 400
+e.rect.top = -45          # как в spawn_enemy()
+g.enemies.add(e)
+g.all_sprites.add(e)
+
+tops = []
+for i in range(30):
+    g.all_sprites.update()
+    if e in [s for s in g.enemies]:
+        tops.append(e.rect.top)
+
+check("L1. Враг выжил первый кадр (не убит при входе сверху)", len(tops) == 30,
+      f"пережил кадров: {len(tops)}/30")
+check("L2. Враг движется вниз", len(tops) >= 2 and tops[-1] > tops[0],
+      f"y: {tops[0]} -> {tops[-1]}")
+
+frames_more = 0
+while e.rect.bottom <= 450 and frames_more < 400:
+    g.all_sprites.update()
+    frames_more += 1
+check("L3. Враг долетел до зоны игрока (bottom > 450)",
+      e.rect.bottom > 450, f"bottom={e.rect.bottom}, кадров={30 + frames_more}")
+
+# --- Boss: тоже входит сверху ---
+boss = Enemy("boss")
+boss.rect.center = (400, 0)
+boss.rect.top = -80       # как в spawn_boss()
+g.enemies.add(boss)
+g.all_sprites.add(boss)
+alive_frames = 0
+for i in range(20):
+    g.all_sprites.update()
+    if boss in [s for s in g.enemies]:
+        alive_frames += 1
+
+check("L4. Босс выживает при входе сверху", alive_frames == 20, f"кадров: {alive_frames}/20")
+
+# --- Выход за нижний край -> удаление ---
+e.rect.top = gm.HEIGHT + 5
+g.all_sprites.update()
+check("L5. Враг удалён после выхода за нижний край", e not in [s for s in g.enemies])
+
+# --- Спавн через обычный игровой цикл (детерминированно) ---
+extra1 = Enemy("simple")
+extra1.rect.centerx = 150
+extra1.rect.top = -45
+extra2 = Enemy("fast")
+extra2.rect.centerx = 600
+extra2.rect.top = -40
+g.enemies.add(extra1, extra2)
+g.all_sprites.add(extra1, extra2)
+
+spawned = 0
+for i in range(300):
+    g.update()
+    spawned += len([s for s in g.enemies])
+
+check("L6. Враги реально появляются и присутствуют на экране", spawned > 300,
+      f"враго-кадров за 300: {spawned}")
+
+print()
+total_pass = sum(1 for _, c in results if c)
+print(f"ИТОГО: {total_pass} PASS / {len(results) - total_pass} FAIL")
+sys.exit(0 if total_pass == len(results) else 1)
+```
+
+ПРОВЕРКА:
+
+```powershell
+.venv\Scripts\python.exe tests\test_lifecycle.py
+```
+
+Ожидается последняя строка вывода: `ИТОГО: 6 PASS / 0 FAIL`
+
+---
+
+### Шаг 3.5. Создать `tests/run_all.py`
+
+ФАЙЛ: `tests/run_all.py`.
+
+```python
+"""Единая точка запуска всех тестов проекта.
+
+Запуск из корня проекта:
+    .venv\\Scripts\\python.exe tests\\run_all.py
+
+Код возврата: 0 — все тесты зелёные, 1 — есть падения.
+"""
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+]
+
+
+def main() -> int:
+    failed = []
+    for name in TESTS:
+        path = os.path.join(HERE, name)
+        if not os.path.exists(path):
+            print(f"[SKIP] {name}: файл не найден (сессия ещё не выполнена)")
+            continue
+        print("=" * 60)
+        print("RUN:", name)
+        print("-" * 60)
+        result = subprocess.run([sys.executable, path])
+        if result.returncode != 0:
+            failed.append(name)
+
+    print()
+    print("#" * 60)
+    if failed:
+        print("УПАЛИ:", ", ".join(failed))
+        print("#" * 60)
+        return 1
+    print("ALL TESTS PASSED (%d)" % len(TESTS))
+    print("#" * 60)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
 
 ---
 
-## 🧪 Как протестировать
+### Шаг 3.6. Финальная проверка сессии
 
-Запустить игру:
-
-```bash
-python main.py
+```powershell
+.venv\Scripts\python.exe tests\run_all.py
 ```
 
-**Наблюдается:**
-- Сверху появляются красные круги (простые враги) — каждые ~80 кадров (~1.3 сек при 60 FPS, уменьшается с уровнем)
-- Они падают вниз со скоростью ~2.5 пикселей за кадр
-- При нажатии пробела пуля попадает во врага → он исчезает, очки увеличиваются на +10
+Ожидаемое окончание вывода:
+
+```
+ALL TESTS PASSED (4)
+```
+
+Также проверь, что игровые файлы не тронуты:
+
+```powershell
+git status --short
+```
+
+Ожидается: только пути внутри `tests/`.
 
 ---
 
-## 🐛 Возможные проблемы
+## 🐛 Если что-то пошло не так
 
-| Проблема | Решение |
-|----------|---------|
-| Враги не появляются | Проверить таймер спавна — `enemy_spawn_interval` может быть слишком большим |
-| Пули проходят сквозь врагов | Убедиться, что `handle_bullet_enemy_collisions()` вызывается в `update()` и пули удаляются после попадания (`bullet.kill()`) |
-| Враги не падают вниз | Проверить `velocity.y` — должно быть положительным (вниз) |
-
----
-
-## ✅ Чеклист завершения сессии
-
-- [ ] Игра запускается без ошибок
-- [ ] Сверху появляются красные круги-враги
-- [ ] Враги падают вниз, исчезают при улете за экран
-- [ ] Пули попадают во врагов → враг уничтожается, очки начисляются (+10)
-- [ ] Таймер спавна уменьшает интервал с каждым уровнем (минимум 40 кадров)
+| Симптом | Причина | Действие |
+|---------|---------|----------|
+| `ModuleNotFoundError: No module named 'main'` | Запуск не из корня проекта | Перейди в корень `snake_38-9b/` и повтори |
+| `ModuleNotFoundError: No module named 'pygame'` | Используется системный python | Запускай через `.venv\Scripts\python.exe` |
+| Тест печатает `[FAIL]` по всем пунктам | Опечатка при копировании листинга | Сравни файл с листингом посимвольно |
+| `AttributeError: ... has no setter` в трейсбеке | Ты случайно изменил `game/game_state.py` | `git checkout -- game/game_state.py` |
+| Окно игры открывается при тестах | Удалены строки `SDL_VIDEODRIVER=dummy` в начале файла | Вернуть первые строки листинга |
 
 ---
 
-## 🚀 Переходим к следующей сессии → Сессия 4: Жизни игрока + частицы взрыва
+## 🚦 Чеклист завершения сессии
+
+- [ ] `tests/test_session2.py` → 10 PASS / 0 FAIL
+- [ ] `tests/test_collisions.py` → 13 PASS / 0 FAIL
+- [ ] `tests/test_progression.py` → 8 PASS / 0 FAIL
+- [ ] `tests/test_lifecycle.py` → 6 PASS / 0 FAIL
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (4)`
+- [ ] Файлы игры (`main.py`, `game/*`) не изменялись
+
+---
+
+## 🚀 Переходим к следующей сессии → Сессия 4: Жизни, Game Over и частицы (доработка)

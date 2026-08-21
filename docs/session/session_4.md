@@ -1,435 +1,332 @@
-# Сессия 4: Жизни игрока и частицы взрыва 💥❤️
+# Сессия 4: Жизни, Game Over и частицы 💥❤️ (v2 — доработка)
 
-## 📅 Дата начала: [вставить дату]
+> **ВАЖНО:** Это ПЕРЕРАБОТАННАЯ сессия. Большая часть механик из старой версии
+> **уже реализована и покрыта тестами**:
+> - отскок пули от врага и урон игроку (`main.py`, метод `handle_collision_enemy_with_bullet`);
+> - частицы взрыва при уничтожении врага (`spawn_particles`, проверяется тестом C7);
+> - жизни `❤/💔` в UI (проверяются отрисовкой).
+>
+> Чего **не хватает**: флаг `game_over` никогда не устанавливается — при нуле
+> жизней игра продолжает работать молча, без экрана поражения.
+>
+> Задача сессии: добавить завершение игры по жизням + экран GAME OVER.
+
+---
+
+## ⚠️ Правила для агента (обязательные)
+
+1. Меняй только файлы, указанные в шагах: `main.py`, `tests/run_all.py`
+   и новый файл `tests/test_gameover.py`.
+2. Каждый шаг: найди точный якорь (раздел «НАЙДИ»), замени блоком из
+   «ЗАМЕНИ НА». Ничего сверх указанного не меняй.
+3. Отступы Python — 4 пробела на уровень. Копируй блоки целиком.
+4. После каждого шага выполняй «ПРОВЕРКУ». Упало — верни файл назад
+   (`git checkout -- main.py`) и повтори шаг заново.
+5. Запрещено: менять константы, рефакторить методы, трогать `game/*`.
+6. Все команды — из корня проекта в PowerShell.
+
+---
+
+## 📌 Текущее состояние
+
+| Поведение | Где | Статус |
+|-----------|-----|--------|
+| Пуля отскакивает от врага | `handle_collision_enemy_with_bullet` | ✅ есть |
+| Отскочившая пуля бьёт игрока (`lives -= 1`) | там же | ✅ есть |
+| Взрыв частиц при убийстве врага | `spawn_particles` | ✅ есть |
+| `game_over = True` при `lives <= 0` | нигде | ❌ **нет** |
+| Экран GAME OVER | `draw()` | ❌ **нет** |
 
 ---
 
 ## 🎯 Цель сессии
-Добавить систему жизней для игрока. При столкновении пули игрока с врагом — пуля отскакивает, и враг стреляет в игрока (наносит урон). Уничтожение врага вызывает всплеск частиц.
+
+1. При `lives <= 0` выставлять `self.game_over = True`.
+2. `update()` уже останавливается при `game_over` (первая строка метода) —
+   после шага 4.2 игра честно замирает.
+3. В `draw()` появляется экран поражения с подсказкой про SPACE.
 
 ---
 
-## ✅ Результат после сессии
-Игра запускается: при попадании пули во врага она отскакивает обратно (в сторону игрока), а враг стреляет в ответ — если попадает, у игрока уменьшается жизнь. При уничтожении врага вокруг него вспыхивают разноцветные частицы.
+## ✅ Определение готовности (Definition of Done)
+
+- [ ] `tests/test_gameover.py` → `ИТОГО: 5 PASS / 0 FAIL`
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (5)`
+- [ ] Изменены только `main.py`, `tests/run_all.py`, добавлен `tests/test_gameover.py`
 
 ---
 
-## 🛠 Задачи
+## 🛠 Шаги
 
-### 1. Создать файл `game/particles.py` (~8 мин)
+### Шаг 4.1. Крупный шрифт для экранов
+
+ФАЙЛ: `main.py`.
+
+НАЙДИ (метод `__init__`, начало класса `Game`):
 
 ```python
-"""game/particles.py — Система частиц."""
-import pygame
+        self.font = pygame.font.Font(None, 36)
+        self.small_font = pygame.font.Font(None, 24)
+```
+
+ЗАМЕНИ НА:
+
+```python
+        self.font = pygame.font.Font(None, 36)
+        self.small_font = pygame.font.Font(None, 24)
+        self.big_font = pygame.font.Font(None, 72)
+```
+
+ПРОВЕРКА:
+
+```powershell
+.venv\Scripts\python.exe -c "import os; os.environ['SDL_VIDEODRIVER']='dummy'; import main; g=main.Game(); print('big_font OK' if hasattr(g,'big_font') else 'NO big_font')"
+```
+
+Ожидается вывод: `big_font OK`
+
+---
+
+### Шаг 4.2. Флаг game_over при нуле жизней
+
+ФАЙЛ: `main.py`.
+
+НАЙДИ (в методе `handle_collision_enemy_with_bullet`):
+
+```python
+        # Если пуля попала в игрока — наносим урон
+        if pygame.sprite.collide_rect(bullet, self.player):
+            self.lives -= 1
+            bullet.kill()
+            return
+```
+
+ЗАМЕНИ НА:
+
+```python
+        # Если пуля попала в игрока — наносим урон
+        if pygame.sprite.collide_rect(bullet, self.player):
+            self.lives -= 1
+            if self.lives <= 0:
+                self.game_over = True
+            bullet.kill()
+            return
+```
+
+ПРОВЕРКА (регрессия коллизий):
+
+```powershell
+.venv\Scripts\python.exe tests\test_collisions.py
+```
+
+Ожидается последняя строка: `ИТОГО: 13 PASS / 0 FAIL`
+
+---
+
+### Шаг 4.3. Экран GAME OVER
+
+ФАЙЛ: `main.py`.
+
+НАЙДИ (конец метода `draw()`):
+
+```python
+        # Жизни: ❤️ — живые, 💔 — потерянные
+        hearts_alive = "❤" * self.lives
+        hearts_broken = "💔" * max(0, 3 - self.lives)
+        lives_text = self.small_font.render(f"Hearts: {hearts_alive}{hearts_broken}", True, COLORS["RED"])
+        self.screen.blit(lives_text, (10, HEIGHT - 30))
+```
+
+ЗАМЕНИ НА:
+
+```python
+        # Жизни: ❤️ — живые, 💔 — потерянные
+        hearts_alive = "❤" * self.lives
+        hearts_broken = "💔" * max(0, 3 - self.lives)
+        lives_text = self.small_font.render(f"Hearts: {hearts_alive}{hearts_broken}", True, COLORS["RED"])
+        self.screen.blit(lives_text, (10, HEIGHT - 30))
+
+        # Экран поражения
+        if self.game_over:
+            over = self.big_font.render("GAME OVER", True, COLORS["WHITE"])
+            hint = self.small_font.render("SPACE — рестарт", True, COLORS["YELLOW"])
+            self.screen.blit(over, over.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20)))
+            self.screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20)))
+```
+
+ПРОВЕРКА (отрисовка не падает):
+
+```powershell
+.venv\Scripts\python.exe -c "import os; os.environ['SDL_VIDEODRIVER']='dummy'; import main; g=main.Game(); g.game_over=True; g.draw(); print('draw OK')"
+```
+
+Ожидается вывод: `draw OK`
+
+---
+
+### Шаг 4.4. Тест завершения игры
+
+СОЗДАЙ ФАЙЛ: `tests/test_gameover.py`.
+
+```python
+"""Тест: жизнь до нуля -> game_over=True, игровой цикл замирает."""
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import random
-import math
-from typing import Optional
+random.seed(4)
+
+import pygame
 
 
-class Particle(pygame.sprite.Sprite):
-    """Частица взрыва: летящая в случайном направлении, затухает со временем."""
-
-    def __init__(self, x: float, y: float) -> None:
-        super().__init__()
-        angle = random.uniform(0, math.pi * 2)
-        speed = random.uniform(1.5, 4.0)
-        self.velocity = pygame.math.Vector2(math.cos(angle), math.sin(angle)) * speed
-
-        radius = random.randint(3, 8)
-        color = random.choice((COLORS["RED"], COLORS["YELLOW"], COLORS["GREEN"]))
-
-        surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(surface, color + (150,), (radius, radius), radius)
-
-        self.image = surface
-        self.rect = self.image.get_rect(center=(x, y))
-        self.lifetime: int = random.randint(30, 60)  # кадры жизни частицы
-
-    def update(self) -> None:
-        """Обновление позиции и уменьшение времени жизни."""
-        self.velocity *= 0.97  # замедление
-        self.rect.center = (self.rect.centerx + self.velocity.x,
-                           self.rect.centery + self.velocity.y)
-        self.lifetime -= 1
-
-        if self.lifetime <= 0:
-            self.kill()
+class FakeClock:
+    t = 1000
 
 
-def create_explosion(x: float, y: float) -> list[Particle]:
-    """Создать всплеск частиц в точке (x, y)."""
-    particles = []
-    for _ in range(random.randint(12, 18)):
-        p = Particle(x, y)
-        particles.append(p)
-    return particles
+pygame.time.get_ticks = lambda: FakeClock.t
 
 
-# Базовый класс сущности (можно вынести в отдельный файл game/entities.py)
-class Entity(pygame.sprite.Sprite):
-    """Базовый класс сущности."""
-
-    def __init__(self, x: float, y: float, radius: float = 20) -> None:
-        super().__init__()
-        self.radius = radius
-        self.image = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, (255, 255, 255), (radius, radius), radius)
-        self.rect = self.image.get_rect(center=(x, y))
-
-    def is_offscreen(self) -> bool:
-        return (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.bottom < 0 or self.rect.top > HEIGHT)
+class FakeKeys(dict):
+    def __getitem__(self, k):
+        return dict.get(self, k, False)
 
 
-# Пуля — обновлённая с отскоком
-class Bullet(pygame.sprite.Sprite):
-    """Пуля — жёлтая полоса, летящая вверх."""
-
-    def __init__(self, x: float, y: float, direction: tuple = (-1.0, -8.0)) -> None:
-        super().__init__()
-        try:
-            self.image = pygame.image.load("game/sprites/bullet.png").convert_alpha()
-        except FileNotFoundError:
-            size, height = 6, 14
-            surface = pygame.Surface((size, height), pygame.SRCALPHA)
-            pygame.draw.rect(surface, (253, 216, 53, 200), (0, 0, size, height))
-            self.image = surface
-
-        self.rect = self.image.get_rect(center=(x + 3, y - 7))
-        speed = 8.0
-        direction_vec = pygame.math.Vector2(direction).normalize() * speed
-        self.velocity = direction_vec
-
-    def update(self) -> None:
-        """Обновление позиции пули."""
-        self.rect.center = (self.rect.centerx + self.velocity.x,
-                           self.rect.centery + self.velocity.y)
-
-        # Удаляем пулю, если она улетела за верх экрана или слишком далеко в стороны
-        if (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.top < 0 or self.rect.bottom < -50):
-            self.kill()
-
-    def bounce(self) -> Optional[pygame.math.Vector2]:
-        """Отскочить: возвращает вектор новой скорости."""
-        new_speed = random.uniform(-6.0, -9.0)  # отскок вверх (в сторону игрока)
-        angle = random.uniform(1.5, 4.0)  # случайный угол отскока
-        return pygame.math.Vector2(math.cos(angle), math.sin(angle)) * new_speed
+results = []
 
 
-# Враг — обновлённый со способностью стрелять обратно
-class Enemy(pygame.sprite.Sprite):
-    """Враг — круг, падающий сверху."""
-
-    TYPES = ["simple", "fast", "boss"]
-
-    def __init__(self, enemy_type: str = "simple") -> None:
-        super().__init__()
-        self.enemy_type = enemy_type
-        self.max_hp = 1 if enemy_type != "boss" else 10
-        self.hp = self.max_hp
-        self.score_value = 10 if enemy_type == "simple" else (20 if enemy_type == "fast" else 100)
-
-        if enemy_type == "simple":
-            size, color, speed = 30, (239, 84, 80), 2.5
-        elif enemy_type == "fast":
-            size, color, speed = 20, (78, 191, 255), 4.5
-        else:
-            size, color, speed = 70, (239, 84, 80), 1.5
-
-        self.radius = size // 2
-        self.image = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
-
-        pygame.draw.circle(self.image, color + (180,), (self.radius, self.radius), self.radius - 3)
-
-        if enemy_type != "boss":
-            pygame.draw.circle(self.image, (255, 255, 255), (14, 12), 4)
-            pygame.draw.circle(self.image, (0, 0, 0), (14, 12), 2)
-            pygame.draw.circle(self.image, (255, 255, 255), (size - 14, 12), 4)
-            pygame.draw.circle(self.image, (0, 0, 0), (size - 14, 12), 2)
-
-        self.rect = self.image.get_rect()
-        self.velocity = pygame.math.Vector2(0.0, speed)
-
-    def update(self) -> None:
-        """Обновление позиции врага."""
-        self.rect.y += self.velocity.y
-
-        if self.enemy_type == "fast":
-            wave_offset = math.sin(pygame.time.get_ticks() / 300.0) * 1.5
-            self.rect.x += wave_offset
-
-        # Проверка: улетел за экран → удалить
-        if (self.rect.right < 0 or self.rect.left > WIDTH or
-                self.rect.bottom < 0 or self.rect.top > HEIGHT):
-            self.kill()
+def check(name, cond, detail=""):
+    results.append((name, bool(cond)))
+    print(("[PASS] " if cond else "[FAIL] ") + name + ((" -- " + str(detail)) if detail else ""))
 
 
-def get_enemy_image(enemy_type: str = "simple") -> pygame.Surface:
-    """Получить изображение врага по типу."""
-    if enemy_type == "simple":
-        size, color = 30, (239, 84, 80)
-    elif enemy_type == "fast":
-        size, color = 20, (78, 191, 255)
-    else:
-        size, color = 70, (239, 84, 80)
+import main as gm
+from game.enemy_sprite import Enemy
 
-    surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
-    pygame.draw.circle(surface, color + (180,), (size, size), size - 3)
-    if enemy_type != "boss":
-        pygame.draw.circle(surface, (255, 255, 255), (14, 12), 4)
-        pygame.draw.circle(surface, (0, 0, 0), (14, 12), 2)
-        pygame.draw.circle(surface, (255, 255, 255), (size - 14, 12), 4)
-        pygame.draw.circle(surface, (0, 0, 0), (size - 14, 12), 2)
+g = gm.Game()
 
-    return surface
+# Враг нависает над верхней кромкой игрока; пуля кладём в пересечение обоих.
+px = g.player.rect.centerx          # ~400
+py = g.player.rect.top              # ~515
+
+enemy = Enemy("simple")
+enemy.rect.center = (px, py - 10)   # низ врага перекрывает верх игрока
+g.enemies.add(enemy)
+g.all_sprites.add(enemy)
+
+b = gm.Bullet(x=px - 20, y=py + 25)   # создаём как в стрельбе...
+b.rect.center = (px, py - 5)          # ...и кладём точно в зону врага+игрока
+g.bullets.add(b)
+g.all_sprites.add(b)
+
+g.lives = 1                            # одна жизнь до удара
+g.handle_collisions()
+
+check("G1. Жизнь списана до нуля", g.lives == 0, f"lives={g.lives}")
+check("G2. game_over = True", g.game_over is True)
+check("G3. Враг не пострадал (урон ушёл игроку)", enemy.hp == 1, f"hp={enemy.hp}")
+
+# Игровой цикл должен замереть: пробел зажат, но новые пули не появляются
+pygame.key.get_pressed = lambda: FakeKeys({pygame.K_SPACE: True})
+for _ in range(5):
+    FakeClock.t += 250
+    g.update()
+check("G4. update() заморожен при game_over (пуль нет)",
+      len([s for s in g.bullets]) == 0,
+      f"bullets={len([s for s in g.bullets])}")
+check("G5. Очки не меняются после смерти", g.score == 0, f"score={g.score}")
+
+print()
+total_pass = sum(1 for _, c in results if c)
+print(f"ИТОГО: {total_pass} PASS / {len(results) - total_pass} FAIL")
+sys.exit(0 if total_pass == len(results) else 1)
 ```
 
-### 2. Обновить `main.py` с жизнями и частицами (~7 мин)
+ПРОВЕРКА:
 
-#### А. Добавить частицы при уничтожении врага
-
-В методе `spawn_enemy()` у класса `Game`:
-
-```python
-def spawn_enemy(self, x: float | None = None, y: float | None = None) -> None:
-    """Спавн нового врага сверху."""
-    types = ["simple"] * (self.level // 2) + ["fast"] if self.level >= 3 else ["simple"]
-    enemy_type = random.choice(types[:min(self.level % 3 + 1, len(types))])
-
-    x = x or random.randint(20, WIDTH - 20)
-    y = y or random.randint(-40, -50)
-
-    enemy = Enemy(enemy_type=enemy_type)
-    enemy.rect.centerx = x
-    enemy.rect.top = y
-
-    self.enemies.append(enemy)
-    self.all_sprites.append(enemy)
-
-
-def spawn_particles(self, x: float, y: float) -> None:
-    """Создать взрыв частиц в точке (x, y)."""
-    for _ in range(random.randint(12, 18)):
-        particle = Particle(x, y)
-        self.particles.append(particle)
-        self.all_sprites.append(particle)
-
-
-def handle_collision_enemy_with_bullet(self, enemy: "Enemy", bullet: Bullet) -> None:
-    """Обработка коллизии врага с пулей игрока."""
-    if enemy.hp <= 0:
-        return
-
-    # Пуля отскакивает (враг стреляет обратно в игрока)
-    bounce_direction = bullet.bounce()
-    bullet.velocity = bounce_direction
-
-    # Враг стреляет — создаём пулю, летящую в сторону игрока
-    if pygame.sprite.collide_rect(bullet, self.player):
-        # Пуля попала в игрока → наносим урон
-        self.lives -= 1
-        bullet.kill()
-        return
-
-    # Если пуль не попала во врага или в игрока — удаляем
-    bullet.kill()
+```powershell
+.venv\Scripts\python.exe tests\test_gameover.py
 ```
 
-#### Б. Добавить метод `handle_collisions()` и вызвать его из `update()`
+Ожидается последняя строка: `ИТОГО: 5 PASS / 0 FAIL`
 
-В классе `Game`:
+---
+
+### Шаг 4.5. Подключить тест к раннеру
+
+ФАЙЛ: `tests/run_all.py`.
+
+НАЙДИ:
 
 ```python
-def handle_collision_enemy_with_bullet(self, enemy: "Enemy", bullet: Bullet) -> None:
-    """Обработка коллизии врага с пулей игрока."""
-    if enemy.hp <= 0:
-        return
-
-    # Пуля отскакивает (враг стреляет обратно в игрока)
-    bounce_direction = bullet.bounce()
-    bullet.velocity = bounce_direction
-
-    # Враг стреляет — создаём пулю, летящую в сторону игрока
-    if pygame.sprite.collide_rect(bullet, self.player):
-        # Пуля попала в игрока → наносим урон
-        self.lives -= 1
-        bullet.kill()
-        return
-
-    # Если пуль не попала во врага или в игрока — удаляем
-    bullet.kill()
-
-
-def handle_collisions(self) -> None:
-    """Обработка всех коллизий."""
-    # Пули → враги
-    for enemy in list(self.enemies):  # перебираем копию списка
-        if enemy.hp <= 0:
-            continue
-
-        hits = pygame.sprite.spritecollide(enemy, self.bullets, False)
-        for bullet in hits:
-            self.handle_collision_enemy_with_bullet(enemy, bullet)
-
-
-# В update():
-def update(self) -> None:
-    """Обновление состояния игры."""
-    if not (self.game_over or self.victory):
-        self.player.update()
-        self.shoot()
-
-        # Удаляем пули, улетевшие за экран
-        for bullet in list(self.bullets):
-            if bullet.is_offscreen():
-                bullet.kill()
-
-        # Проверка попаданий пуль во врагов
-        self.handle_collisions()
-
-        # Обновление всех живых сущностей
-        for entity in list(self.all_sprites):
-            entity.update()
-
-        # Спавн врагов по таймеру
-        self.enemy_spawn_timer += 1
-        if self.enemy_spawn_timer >= max(40, 80 - self.level * 5):
-            self.spawn_enemy()
-            self.enemy_spawn_timer = 0
-
-
-def draw(self) -> None:
-    """Отрисовка кадра."""
-    SCREEN.fill(COLORS["BLACK"])
-
-    # Игрок
-    self.player.image.set_alpha(200 if pygame.time.get_ticks() % 300 < 150 else 255)
-    SCREEN.blit(self.player.image, self.player.rect)
-
-    # Пули
-    for bullet in self.bullets:
-        SCREEN.blit(bullet.image, bullet.rect)
-
-    # Враги
-    for enemy in self.enemies:
-        if enemy.hp <= 0:
-            continue
-        SCREEN.blit(enemy.image, enemy.rect)
-
-    # Частицы (над всеми другими объектами)
-    for particle in self.particles:
-        SCREEN.blit(particle.image, particle.rect)
-
-    # UI
-    title = self.font.render("Galaxy Shooter", True, COLORS["WHITE"])
-    SCREEN.blit(title, (10, 10))
-
-    score_text = self.small_font.render(f"Score: {self.score}", True, COLORS["YELLOW"])
-    SCREEN.blit(score_text, (10, 50))
-
-    level_text = self.small_font.render(f"Level: {self.level}", True, COLORS["WHITE"])
-    SCREEN.blit(level_text, (WIDTH // 2 + 60, 10))
-
-    lives_text = self.small_font.render(
-        f"Hearts: {'❤' * self.lives}{'💔' * (3 - self.lives)}", True, COLORS["RED"]
-    )
-    SCREEN.blit(lives_text, (10, HEIGHT - 30))
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+]
 ```
 
-### 3. Обновить `Player` — добавить урон от пуль (~2 мин)
-
-В классе `Player`:
+ЗАМЕНИ НА:
 
 ```python
-class Player(pygame.sprite.Sprite):
-    """Корабль игрока."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.image = load_sprite("game/sprites/spaceship.png")
-        if self.image is None:
-            size = 50
-            surface = pygame.Surface((size, size), pygame.SRCALPHA)
-            points = [(25, 0), (50, size - 10), (0, size - 10)]
-            pygame.draw.polygon(surface, COLORS["GREEN"], points, width=3)
-            self.image = surface
-
-        self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 60))
-        self.cooldown: Optional[float] = None
-        self.last_shot_time: float = 0.0
-
-
-    # (движение остаётся без изменений)
-```
-
-### 4. Обновить `draw()` — отрисовка частиц над остальным
-
-В методе `draw()`:
-
-```python
-def draw(self) -> None:
-    """Отрисовка кадра."""
-    SCREEN.fill(COLORS["BLACK"])
-
-    # Игрок
-    self.player.image.set_alpha(200 if pygame.time.get_ticks() % 300 < 150 else 255)
-    SCREEN.blit(self.player.image, self.player.rect)
-
-    # Пули
-    for bullet in self.bullets:
-        SCREEN.blit(bullet.image, bullet.rect)
-
-    # Враги
-    for enemy in self.enemies:
-        if enemy.hp <= 0:
-            continue
-        SCREEN.blit(enemy.image, enemy.rect)
-
-    # Частицы (над всеми другими объектами)
-    for particle in self.particles:
-        SCREEN.blit(particle.image, particle.rect)
-
-    # UI...
+TESTS = [
+    "test_session2.py",
+    "test_collisions.py",
+    "test_lifecycle.py",
+    "test_progression.py",
+    "test_gameover.py",
+]
 ```
 
 ---
 
-## 🧪 Как протестировать
+### Шаг 4.6. Финальная проверка сессии
 
-Запустить игру:
-
-```bash
-python main.py
+```powershell
+.venv\Scripts\python.exe tests\run_all.py
 ```
 
-**Наблюдается:**
-- При попадании пули во врага — пуля отскакивает обратно (в сторону игрока), а вокруг врага вспыхивают разноцветные частицы
-- Если отскочившая пуля попадает в игрока — уменьшается количество жизней, отображаемых как ❤️ или 💔
-- Частицы исчезают через ~45 кадров (~0.7 сек)
+Ожидаемое окончание вывода:
+
+```
+ALL TESTS PASSED (5)
+```
+
+Ручная проверка (опционально, если есть дисплей):
+
+```powershell
+.venv\Scripts\python.exe main.py
+```
+
+Подставься под отскочившие пули, пока сердца не закончатся → по центру
+должно появиться `GAME OVER`, игра замирает, `SPACE` перезапускает.
 
 ---
 
-## 🐛 Возможные проблемы
+## 🐛 Если что-то пошло не так
 
-| Проблема | Решение |
-|----------|---------|
-| Пули не отскакивают | Проверить метод `bounce()` — возвращает вектор с отрицательной скоростью по Y |
-| Частицы не появляются при уничтожении врага | Убедиться, что в коде после `enemy.kill()` вызывается `spawn_particles()` или что частицы создаются при коллизии |
-| Пуля пролетает сквозь игрока | Увеличить радиус/размер игрока в `Player.rect` или добавить проверку коллизий с прямоугольником игрока |
-
----
-
-## ✅ Чеклист завершения сессии
-
-- [ ] Игра запускается без ошибок
-- [ ] При попадании пули во врага:
-  - Пуля отскакивает вверх (в сторону игрока)
-  - Враг стреляет обратно (появляется новая пуля, летящая в сторону игрока)
-  - Если пуля попадает в игрока — жизнь уменьшается (❤️ превращается в 💔)
-- [ ] При уничтожении врага вокруг него вспыхивает разноцветный взрыв из частиц
-- [ ] Частицы исчезают через ~45 кадров
+| Симптом | Причина | Действие |
+|---------|---------|----------|
+| G2 `[FAIL]`: `game_over` остался False | Шаг 4.2 не применён или ветка стоит не в том месте | Сверь блок с листингом шага 4.2 посимвольно |
+| G3 `[FAIL]`: у врага hp=0 | Пуля легла мимо зоны игрока | Сверь координаты в листинге 4.4 (`py - 10`, `py - 5`) |
+| G4 `[FAIL]`: пули продолжают появляться | `update()` больше не начинается с проверки флага | Верни первую строку `update()`: `if self.game_over or self.victory: return` |
+| После 4.2 падает C-тест | Затронут другой блок обработчика | `git checkout -- main.py`, повтори шаги 4.1–4.3 |
+| `NameError: big_font` | Пропущен шаг 4.1 | Выполни шаг 4.1 |
 
 ---
 
-## 🚀 Переходим к следующей сессии → Сессия 5: Прогрессия сложности + боссы
+## 🚦 Чеклист завершения сессии
+
+- [ ] `game_over` выставляется ровно при `lives <= 0`
+- [ ] Экран GAME OVER рисуется по центру, подсказка про SPACE видна
+- [ ] `tests/test_gameover.py` → 5 PASS / 0 FAIL
+- [ ] `tests/run_all.py` → `ALL TESTS PASSED (5)`
+- [ ] Ни один файл в `game/` не изменён
+
+---
+
+## 🚀 Переходим к следующей сессии → Сессия 5: Прогрессия и боссы (доработка)
