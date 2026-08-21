@@ -1,37 +1,187 @@
-# Galaxy Shooter — Instructions for agents
+# Galaxy Shooter — Instructions для агентов
 
-## Commands to run
+## 🚀 Запуск игры
 
 ```bash
+pip install pygame>=2.4.0
 python main.py
 ```
 
-## Project structure
+---
+
+## 📁 Структура проекта
 
 ```
-game/
-  __init__.py       # Empty init file (Python package marker)
-  config.py         # All constants: screen size, colors, speeds, spawn rates
-  entities.py       # Entity base class + create_rect_from_surface utility
-  player_sprite.py  # Player: movement, cooldown shooting
-  bullet_sprite.py  # Bullet with bounce physics on enemy collision
-  enemy_sprite.py   # Enemy types: simple/fast/boss with hp and bouncing bullets
-  particles.py      # Particle effects (explosions)
-  game_state.py     # Level progression logic
-main.py             # Game class + main() entrypoint
-requirements.txt    # pygame, colorsys
+snake_38-9b/
+├── docs/
+│   ├── PLAN.md                    # Общий план разработки (7 сессий)
+│   ├── project_plan.md            # Архитектура + механики
+│   └── session/                   # Поэтапные планы:
+│       ├── session_0.md           # Подготовка спрайтов
+│       ├── session_1.md          # Каркас + игрок (WASD)
+│       ├── session_2.md          # Стрельба + пули
+│       ├── session_3.md          # Враги + коллизии
+│       ├── session_4.md          # Жизни + частицы взрыва
+│       ├── session_5.md          # Прогрессия сложности + боссы
+│       └── session_6.md          # Game Over/Victory + UI
+├── game/
+│   ├── __init__.py               # Пустой маркер пакета Python
+│   ├── config.py                 # Все константы игры (WIDTH, HEIGHT, FPS, цвета)
+│   ├── entities.py              # Entity (база) + create_rect_from_surface()
+│   ├── player_sprite.py         # Player: движение WASD/стрелки, cooldown стрельбы
+│   ├── bullet_sprite.py         # Bullet: отскок от врагов, возврат к игроку
+│   ├── enemy_sprite.py          # Enemy (simple/fast/boss), spawn_enemy(), spawn_boss()
+│   ├── particles.py             # Particle + create_explosion() — эффекты взрыва
+│   └── game_state.py            # Level: прогрессия сложности, get_available_enemy_types()
+├── main.py                      # Game класс + игровой цикл (полный код в docs/session_6.md)
+├── requirements.txt             # pygame>=2.4.0, colorsys>=1.4.1
+└── AGENTS.md                    # этот файл
 ```
 
-## Architecture notes
+---
 
-- **Bouncing bullets**: When a bullet hits an enemy with remaining HP, it bounces back toward the player. If it then hits the player, they take damage. This is handled in `main.py:Game.handle_collision_enemy_with_bullet`.
-- **Enemy spawn**: Enemies spawn from above (y ∈ [-50, -40]) at random x positions. The spawn interval decreases with level and is capped by `MIN_SPAWN_INTERVAL`.
-- **Leveling up**: Triggered when score reaches `level.victory_score_threshold`. The counter `enemies_killed_this_level` resets on each level-up. Available enemy types grow with level number.
-- **Boss spawning**: Appears at level 6 (`LEVEL_BOSS_THRESHOLD`).
-- **Player death handling**: When lives reach 0, the game transitions to Game Over state; pressing SPACE restarts from scratch (full reset).
+## 🎮 Игровая механика
 
-## Conventions
+| Элемент | Описание |
+|---------|----------|
+| **Игрок** | Треугольный корабль, управляется WASD / стрелками (скорость 5 пикс/кадр) |
+| **Стрельба** | Пробел — выстрел с cooldown ~200 мс |
+| **Пули** | Жёлтые полоски летят вверх (~8 пкс/кадр), исчезают за экраном |
+| **Враги** | 3 типа: simple (красные, HP=1), fast (синие + волна), boss (большой с глазом, HP=10) |
+| **Отскок** | Пуля попадает во врага → отскакивает обратно к игроку → если в игрока — урон |
+| **Частицы** | При уничтожении врага — разноцветный взрыв (12–18 частиц, жизнь 30–60 кадров) |
+| **Жизни** | `❤` живые + `💔` потерянные (всего 3 жизни) |
 
-- All game constants are defined in `config.py` as module-level variables.
-- Entity classes extend `game.entities.Entity`.
-- Collision resolution for bullets vs enemies uses `pygame.sprite.spritecollide(enemy, self.bullets, False)`.
+---
+
+## 🗺 Прогрессия уровней (`game/game_state.py`)
+
+### Параметры уровня:
+
+| Параметр | Формула / Значение |
+|----------|-------------------|
+| **spawn_interval** | `max(40, 80 - level * 5)` — интервал спавна врагов (кадров) |
+| **enemies_to_kill_for_next_level** | `(level + 1) × 2` — нужно уничтожить для повышения уровня |
+| **victory_score_threshold** | `level × 10` — порог очков для победы на уровне |
+
+### Доступные типы врагов по уровню (`get_available_enemy_types(level)`):
+
+| Уровень | Типы врагов |
+|---------|-------------|
+| 1–2     | только `simple` |
+| 3–5     | `simple`, `fast` |
+| 6+      | `simple`, `fast`, `boss` (появляется при повышении уровня) |
+
+### Характеристики врагов:
+
+| Тип    | Размер | Цвет         | Скорость | HP   | Баллы |
+|--------|--------|---------------|----------|------|-------|
+| simple | 30px   | красный       | 2.5      | 1    | +10   |
+| fast   | 20px   | синий         | 4.5      | 1    | +20   |
+| boss   | 76px   | большой красный с глазом | 1.5     | 10   | +100  |
+
+---
+
+## 🧠 Архитектура
+
+### Основной цикл (`main.py:Game.update()`):
+
+```python
+def update(self) -> None:
+    if not (self.game_over or self.victory):
+        # 1. Обновление игрока
+        self.player.update()
+
+        # 2. Стрельба (если пробел нажат + cooldown истёк)
+        self.shoot()
+
+        # 3. Удаляем пули за экраном
+        for bullet in list(self.bullets):
+            if bullet.is_offscreen():
+                bullet.kill()
+
+        # 4. Коллизии: пули → враги (отскок + урон игроку)
+        self.handle_collisions()
+
+        # 5. Обновление всех живых сущностей
+        for entity in list(self.all_sprites):
+            entity.update()
+
+        # 6. Спавн врагов по вероятности (интервал зависит от уровня)
+        if random.random() < 1.0 / max(40, self.level.spawn_interval):
+            self.spawn_enemy()
+
+        # 7. Проверка повышения уровня (+ спавн босса на уровне 6+)
+        self.handle_level_up()
+```
+
+### Отрисовка (`Game.draw()`):
+
+Порядок рендеринга (снизу вверх по слоям):
+1. Чёрный фон экрана
+2. Игрок (с эффектом мигания: alpha 200/255)
+3. Пули
+4. Вражи (только живые, `hp > 0`)
+5. Частицы взрыва (всегда сверху)
+6. UI: заголовок, очки, уровень/прогресс, жизни
+
+---
+
+## 🎮 Управление
+
+| Клавиша | Действие |
+|---------|----------|
+| `W / ↑` | Вверх |
+| `S / ↓` | Вниз |
+| `A / ←` | Влево |
+| `D / →` | Вправо |
+| `Space` | Стрельба (cooldown ~200 мс) |
+| `Esc`   | Выйти из игры |
+
+---
+
+## 🔄 Состояния игры (`game_state`)
+
+- **Playing** — нормальная игра
+- **Game Over** — жизни = 0, можно перезапустить по пробелу
+- **Victory** — достигнут порог очков на уровне (показывает экран победы)
+
+Перезапуск из любого состояния: `GAME.game_over = False`, `GAME.victory = False`, сброс всех параметров.
+
+---
+
+## 🛠 Утилиты (`game/entities.py`)
+
+```python
+class Entity(pygame.sprite.Sprite):
+    """Базовый класс сущности."""
+    
+    @property
+    def is_offscreen(self) -> bool:
+        """Проверка выхода за пределы экрана."""
+
+
+def create_rect_from_surface(surface, center_x, center_y) -> pygame.Rect:
+    """Создать Rect из поверхности, центрируя её в точке."""
+```
+
+---
+
+## 🐛 Распространённые проблемы и решения
+
+| Проблема | Причина | Решение |
+|----------|---------|---------|
+| Враги не спавнятся | Таймер спавна слишком большой | Уменьшить `spawn_interval` или увеличить FPS |
+| Пули проходят сквозь врагов | `spritecollide(..., False)` возвращает список | Использовать `kill()` после обработки коллизии |
+| Босс не появляется | Уровень не достиг 6 | Проверить логику повышения уровня и пороги очков |
+| Корабль застревает в углу | Границы экрана не ограничивают движение | Добавить `rect.clamp` или проверки границ |
+
+---
+
+## 📝 Примечания для агентов
+
+- Всегда считайте сущности живыми только если `entity.hp > 0`.
+- При уничтожении врага (`hp <= 0`) вызывайте `.kill()` и начисляйте очки.
+- Боссы дают +100 очков при уничтожении (вместо +10 у простых).
+- Частицы создаются в `spawn_particles()` и добавляются в `all_sprites`.
+- При отскоке пули враг "стреляет обратно" — это просто возврат вектора скорости.
